@@ -6,6 +6,7 @@ import { initDb, closeDb } from './db/index.js';
 import { syncAgentsToDb, agentRouter } from './modules/agent/index.js';
 import { llmRouter } from './modules/llm/index.js';
 import { ticketRouter } from './modules/ticket/index.js';
+import { projectRouter } from './modules/project/index.js';
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.get('/health', (req, res) => {
 app.use('/api/agents', agentRouter);
 app.use('/api/llm', llmRouter);
 app.use('/api/tickets', ticketRouter);
+app.use('/api/projects', projectRouter);
 
 // 初始化
 initDb();
