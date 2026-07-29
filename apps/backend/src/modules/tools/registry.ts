@@ -1,4 +1,5 @@
 import type { ToolDefinition } from './types.js';
+import { getDb } from '../../db/index.js';
 
 export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
   file_read: {
@@ -84,4 +85,40 @@ export function getApprovalRequiredTools(): string[] {
   return Object.values(TOOL_REGISTRY)
     .filter(t => t.approvalRequired)
     .map(t => t.name);
+}
+
+// 从DB加载覆盖配置后的工具定义
+export function getEffectiveToolDefinition(name: string): ToolDefinition | null {
+  const base = TOOL_REGISTRY[name];
+  if (!base) return null;
+
+  // 从DB加载覆盖
+  try {
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM tool_overrides WHERE tool_name = ?').get(name) as any;
+    if (row) {
+      return {
+        ...base,
+        approvalRequired: row.approval_required !== null ? !!row.approval_required : base.approvalRequired,
+      };
+    }
+  } catch {
+    // DB可能还没初始化
+  }
+  return base;
+}
+
+export function getAllEffectiveToolDefinitions(): ToolDefinition[] {
+  return Object.keys(TOOL_REGISTRY).map(name => getEffectiveToolDefinition(name)!).filter(Boolean);
+}
+
+export function setToolOverride(toolName: string, approvalRequired?: boolean): void {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO tool_overrides (tool_name, approval_required, updated_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT(tool_name) DO UPDATE SET
+      approval_required = COALESCE(excluded.approval_required, tool_overrides.approval_required),
+      updated_at = datetime('now')
+  `).run(toolName, approvalRequired === undefined ? null : (approvalRequired ? 1 : 0));
 }

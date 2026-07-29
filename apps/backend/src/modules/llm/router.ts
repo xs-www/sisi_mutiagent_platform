@@ -45,30 +45,50 @@ async function callExternal(
   messages: ChatMessage[],
   options?: { temperature?: number }
 ): Promise<ChatResponse> {
-  // 解析API Key：优先使用Agent配置，回退到平台配置
-  const apiKey = resolveApiKey(modelConfig.provider, modelConfig.apiKey);
+  let apiKey: string;
+  let keyId: string | null = null;
 
-  if (!apiKey) {
-    throw new Error(`No API key configured for provider: ${modelConfig.provider}`);
+  if (modelConfig.apiKey) {
+    // Agent自带key
+    apiKey = modelConfig.apiKey;
+  } else {
+    // 从DB获取平台key
+    const { getActiveApiKeysByProvider } = await import('../apikeys/repository.js');
+    const { selectAvailableKey, acquireKey } = await import('../apikeys/concurrency.js');
+
+    const keys = getActiveApiKeysByProvider(modelConfig.provider);
+    if (keys.length === 0) {
+      // 回退到配置文件
+      const providerConfig = config.llm.providers[modelConfig.provider];
+      apiKey = providerConfig?.apiKey || '';
+      if (!apiKey) {
+        throw new Error(`No API key configured for provider: ${modelConfig.provider}`);
+      }
+    } else {
+      // 选择可用key
+      keyId = selectAvailableKey(keys.map(k => ({ id: k.id, maxConcurrency: k.maxConcurrency })));
+      if (!keyId) {
+        throw new Error(`All API keys for provider "${modelConfig.provider}" have reached concurrency limit`);
+      }
+      const keyObj = keys.find(k => k.id === keyId)!;
+      acquireKey(keyId, keyObj.maxConcurrency);
+      apiKey = keyObj.apiKey;
+    }
   }
 
-  switch (modelConfig.provider) {
-    case 'openai':
-      return await chatOpenAI(modelConfig.name, messages, apiKey, options);
-    case 'anthropic':
-      return await chatAnthropic(modelConfig.name, messages, apiKey, options);
-    default:
-      throw new Error(`Unsupported provider: ${modelConfig.provider}`);
+  try {
+    switch (modelConfig.provider) {
+      case 'openai':
+        return await chatOpenAI(modelConfig.name, messages, apiKey, options);
+      case 'anthropic':
+        return await chatAnthropic(modelConfig.name, messages, apiKey, options);
+      default:
+        throw new Error(`Unsupported provider: ${modelConfig.provider}`);
+    }
+  } finally {
+    if (keyId) {
+      const { releaseKey } = await import('../apikeys/concurrency.js');
+      releaseKey(keyId);
+    }
   }
-}
-
-function resolveApiKey(provider: string, agentKey?: string): string {
-  // Agent配置优先
-  if (agentKey) {
-    return agentKey;
-  }
-
-  // 回退到平台配置
-  const providerConfig = config.llm.providers[provider];
-  return providerConfig?.apiKey || '';
 }

@@ -1,4 +1,4 @@
-import { getToolDefinition } from './registry.js';
+import { getEffectiveToolDefinition } from './registry.js';
 import { executeToolImplementation } from './implementations.js';
 import { createApprovalRequest, getApprovalRequest, updateApprovalStatus } from '../approval/repository.js';
 import type { ToolResult, ToolExecutionResult, ApprovalRequiredResult } from './types.js';
@@ -14,7 +14,7 @@ export async function executeTool(
 ): Promise<ToolResult> {
   const startTime = Date.now();
 
-  const definition = getToolDefinition(toolName);
+  const definition = getEffectiveToolDefinition(toolName);
   if (!definition) {
     return {
       success: false,

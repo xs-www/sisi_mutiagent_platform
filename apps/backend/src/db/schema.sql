@@ -94,8 +94,29 @@ CREATE TABLE IF NOT EXISTS agent_memories (
   FOREIGN KEY (project_id) REFERENCES projects(id)
 );
 
+-- API Key管理表
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  name TEXT NOT NULL,
+  api_key TEXT NOT NULL,
+  max_concurrency INTEGER DEFAULT 1,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 工具配置覆盖表
+CREATE TABLE IF NOT EXISTS tool_overrides (
+  tool_name TEXT PRIMARY KEY,
+  approval_required INTEGER,
+  is_enabled INTEGER DEFAULT 1,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_provider ON api_keys(provider);
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_assignee ON tickets(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_messages_ticket ON messages(ticket_id);

@@ -9,6 +9,7 @@ import { ticketRouter } from './modules/ticket/index.js';
 import { projectRouter } from './modules/project/index.js';
 import { toolRouter } from './modules/tools/index.js';
 import { approvalRouter } from './modules/approval/index.js';
+import { apiKeyRouter } from './modules/apikeys/index.js';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use('/api/tickets', ticketRouter);
 app.use('/api/projects', projectRouter);
 app.use('/api/tools', toolRouter);
 app.use('/api/approvals', approvalRouter);
+app.use('/api/api-keys', apiKeyRouter);
 
 // 初始化
 initDb();

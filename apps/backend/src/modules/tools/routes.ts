@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllToolDefinitions, getToolDefinition } from './registry.js';
+import { getAllEffectiveToolDefinitions, getEffectiveToolDefinition, setToolOverride } from './registry.js';
 import { executeToolImplementation } from './implementations.js';
 import { executeTool, executeApprovedTool, approveApproval, rejectApproval } from './executor.js';
 import { getAgentFromDb } from '../agent/loader.js';
@@ -9,13 +9,26 @@ import { isApprovalRequired } from './types.js';
 export const toolRouter = Router();
 
 toolRouter.get('/definitions', (req, res) => {
-  res.json(getAllToolDefinitions());
+  res.json(getAllEffectiveToolDefinitions());
 });
 
 toolRouter.get('/definitions/:name', (req, res) => {
-  const def = getToolDefinition(req.params.name);
+  const def = getEffectiveToolDefinition(req.params.name);
   if (!def) return res.status(404).json({ error: 'Tool not found' });
   res.json(def);
+});
+
+// 更新工具配置覆盖（approvalRequired）
+toolRouter.patch('/definitions/:name', (req, res) => {
+  try {
+    const { approvalRequired } = req.body as { approvalRequired?: boolean };
+    const base = getEffectiveToolDefinition(req.params.name);
+    if (!base) return res.status(404).json({ error: 'Tool not found' });
+    setToolOverride(req.params.name, approvalRequired);
+    res.json(getEffectiveToolDefinition(req.params.name));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 toolRouter.post('/execute-direct', async (req, res) => {
