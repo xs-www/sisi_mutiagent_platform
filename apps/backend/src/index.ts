@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config/index.js';
 import { initDb, closeDb } from './db/index.js';
+import { syncAgentsToDb } from './modules/agent/loader.js';
 
 const app = express();
 
@@ -13,8 +14,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// 初始化数据库
+// 初始化
 initDb();
+syncAgentsToDb();
 
 // 优雅关闭
 process.on('SIGINT', () => {
