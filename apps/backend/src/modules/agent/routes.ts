@@ -42,3 +42,36 @@ agentRouter.get('/:id/config', (req, res) => {
     res.status(500).json({ error: 'Failed to fetch agent config' });
   }
 });
+
+// 触发Agent执行工单
+agentRouter.post('/:id/execute', async (req, res) => {
+  try {
+    const agent = getAgentFromDb(req.params.id);
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const { ticketId, projectId, maxIterations, temperature } = req.body as {
+      ticketId: string;
+      projectId?: string;
+      maxIterations?: number;
+      temperature?: number;
+    };
+
+    if (!ticketId) {
+      return res.status(400).json({ error: 'ticketId is required' });
+    }
+
+    const { executeAgent } = await import('./executor.js');
+
+    const result = await executeAgent(agent, ticketId, projectId, {
+      maxIterations,
+      temperature
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('Error executing agent:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
