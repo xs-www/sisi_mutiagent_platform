@@ -20,9 +20,21 @@ const menuItems = [
   { key: '/approvals', icon: <SafetyOutlined />, label: <Link to="/approvals">审批中心</Link> },
 ];
 
+function getSelectedKey(pathname: string): string {
+  if (pathname === '/') return '/';
+  for (const item of menuItems) {
+    if (item.key === '/') continue;
+    if (pathname === item.key || pathname.startsWith(item.key + '/')) {
+      return item.key;
+    }
+  }
+  return pathname;
+}
+
 export default function MainLayout() {
   const location = useLocation();
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
+  const selectedKey = getSelectedKey(location.pathname);
 
   return (
     <Layout>
@@ -32,7 +44,7 @@ export default function MainLayout() {
         </div>
         <Menu
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[selectedKey]}
           items={menuItems}
           style={{ borderRight: 0, paddingTop: 8 }}
         />
