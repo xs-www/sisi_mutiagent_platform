@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllEffectiveToolDefinitions, getEffectiveToolDefinition, setToolOverride } from './registry.js';
+import { getAllEffectiveToolDefinitions, getEffectiveToolDefinition, setToolOverride, createCustomToolDefinition, deleteCustomToolDefinition } from './registry.js';
 import { executeToolImplementation } from './implementations.js';
 import { executeTool, executeApprovedTool, approveApproval, rejectApproval } from './executor.js';
 import { getAgentFromDb } from '../agent/loader.js';
@@ -18,6 +18,41 @@ toolRouter.get('/definitions/:name', (req, res) => {
   res.json(def);
 });
 
+toolRouter.post('/definitions', (req, res) => {
+  try {
+    const { name, description, category, approvalRequired, params } = req.body as {
+      name: string;
+      description: string;
+      category: string;
+      approvalRequired?: boolean;
+      params: Array<{ name: string; type: string; required?: boolean; description: string }>;
+    };
+    if (!name || !description || !category || !Array.isArray(params)) {
+      return res.status(400).json({ error: 'name, description, category, params are required' });
+    }
+    const created = createCustomToolDefinition({
+      name,
+      description,
+      category: category as any,
+      approvalRequired: !!approvalRequired,
+      params: params as any,
+    });
+    res.status(201).json(created);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+toolRouter.delete('/definitions/:name', (req, res) => {
+  try {
+    const ok = deleteCustomToolDefinition(req.params.name);
+    if (!ok) return res.status(404).json({ error: 'Tool not found' });
+    res.json({ message: 'Tool deleted' });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 更新工具配置覆盖（approvalRequired）
 toolRouter.patch('/definitions/:name', (req, res) => {
   try {
@@ -33,15 +68,21 @@ toolRouter.patch('/definitions/:name', (req, res) => {
 
 toolRouter.post('/execute-direct', async (req, res) => {
   try {
-    const { toolName, params, workspacePath } = req.body as {
+    const { toolName, params, workspacePath, projectId, ticketId } = req.body as {
       toolName: string;
       params: Record<string, any>;
       workspacePath: string;
+      projectId?: string;
+      ticketId?: string;
     };
     if (!toolName || !workspacePath) {
       return res.status(400).json({ error: 'toolName and workspacePath are required' });
     }
-    const result = await executeToolImplementation(toolName, params || {}, workspacePath);
+    const result = await executeToolImplementation(toolName, params || {}, workspacePath, {
+      workspacePath,
+      projectId,
+      ticketId,
+    });
     res.json(result);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -75,7 +116,10 @@ toolRouter.post('/execute', async (req, res) => {
       require('fs').mkdirSync(workspacePath, { recursive: true });
     }
 
-    const result = await executeTool(toolName, params || {}, agent.config, ticketId, workspacePath, reason);
+    const result = await executeTool(toolName, params || {}, agent.config, ticketId, workspacePath, {
+      projectId,
+      agentName: agent.name,
+    }, reason);
 
     if (isApprovalRequired(result)) {
       return res.status(202).json(result);
@@ -105,7 +149,10 @@ toolRouter.post('/execute-approved', async (req, res) => {
       if (project) workspacePath = project.workspacePath;
     }
 
-    const result = await executeApprovedTool(approvalId, workspacePath || process.cwd(), agent.config);
+    const result = await executeApprovedTool(approvalId, workspacePath || process.cwd(), agent.config, {
+      projectId,
+      agentName: agent.name,
+    });
     res.json(result);
   } catch (e: any) {
     res.status(500).json({ error: e.message });

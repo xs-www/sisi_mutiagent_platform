@@ -4,9 +4,10 @@ import { buildReActPrompt, type ReActStep } from './prompt-builder.js';
 import { parseAgentResponse } from './action-parser.js';
 import type { ParsedAction } from './action-parser.js';
 import type { Agent } from './types.js';
-import { getTicketById, updateTicketStatus, createMessage, getMessagesByTicket } from '../ticket/repository.js';
+import { getTicketById, updateTicketStatus, createMessage, getMessagesByTicket, createTicket } from '../ticket/repository.js';
 import { addMemory } from '../memory/manager.js';
 import type { ChatMessage } from '../llm/types.js';
+import { resolveProjectAssignee } from '../project/repository.js';
 
 const MAX_ITERATIONS = 10; // 最大循环次数
 
@@ -193,7 +194,8 @@ async function executeAction(
           toolParams,
           agent.config,
           ticketId,
-          workspacePath
+          workspacePath,
+          { projectId, agentName: agent.name }
         );
 
         if (isApprovalRequired(toolResult)) {
@@ -216,7 +218,7 @@ async function executeAction(
           ticketId,
           senderType: 'agent',
           senderId: agent.id,
-          content: `[发送给 ${action.messageTo}]: ${action.messageContent}`,
+          content: action.messageContent,
           messageType: 'text'
         });
         return `消息已发送给 ${action.messageTo}`;
@@ -224,8 +226,41 @@ async function executeAction(
       return '消息发送失败：参数不完整';
 
     case 'create_ticket':
-      // Phase 2: 仅记录，实际创建需要project_id
-      return `创建工单请求已记录: ${action.ticketTitle}（工单创建API将在项目管理模块中实现）`;
+      const currentTicket = getTicketById(ticketId);
+      const effectiveProjectId = projectId || currentTicket?.projectId;
+
+      if (!effectiveProjectId) {
+        return '创建工单失败：缺少 projectId';
+      }
+
+      if (!action.ticketTitle) {
+        return '创建工单失败：缺少工单标题';
+      }
+
+      const assignee = resolveProjectAssignee(effectiveProjectId, action.ticketAssignee);
+      const createdTicket = createTicket({
+        projectId: effectiveProjectId,
+        title: action.ticketTitle,
+        description: action.ticketDescription || '',
+        type: (action.ticketType as any) || 'task',
+        assigneeId: assignee?.agentId,
+        createdBy: agent.id,
+        parentTicketId: ticketId,
+      });
+
+      createMessage({
+        ticketId,
+        senderType: 'system',
+        senderId: 'system',
+        content: assignee
+          ? `已创建工单并指派给 ${assignee.agentName} [${assignee.agentId}]：${createdTicket.title}`
+          : `已创建工单，但未找到可用 assignee：${createdTicket.title}`,
+        messageType: 'text'
+      });
+
+      return assignee
+        ? `工单已创建并指派给 ${assignee.agentName}`
+        : '工单已创建，但未找到可用 assignee';
 
     case 'complete_ticket':
       return '工单已标记为待审核';

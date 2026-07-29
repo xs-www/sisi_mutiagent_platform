@@ -4,7 +4,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { config } from '../../config/index.js';
+import { getAgentFromDb } from '../agent/loader.js';
 import type { Project, ProjectMember, CreateProjectInput, UpdateProjectInput } from './types.js';
+
+export interface ProjectMemberProfile extends ProjectMember {
+  agentName: string;
+  agentRole: string;
+  isSupervisor: boolean;
+}
 
 const projectsDir = join(config.dataDir, 'projects');
 
@@ -105,6 +112,50 @@ export function getProjectMembers(projectId: string): ProjectMember[] {
   const db = getDb();
   const rows = db.prepare('SELECT * FROM project_members WHERE project_id = ? ORDER BY joined_at ASC').all(projectId) as any[];
   return rows.map(mapRowToMember);
+}
+
+export function getProjectMemberProfiles(projectId: string): ProjectMemberProfile[] {
+  const members = getProjectMembers(projectId);
+
+  return members.map((member) => {
+    const agent = getAgentFromDb(member.agentId);
+    return {
+      ...member,
+      agentName: agent?.name || member.agentId,
+      agentRole: agent?.role || 'specialist',
+      isSupervisor: agent?.role === 'supervisor',
+    };
+  });
+}
+
+export function resolveProjectAssignee(projectId: string, assigneeHint?: string): ProjectMemberProfile | null {
+  const members = getProjectMemberProfiles(projectId);
+  if (members.length === 0) return null;
+
+  const hint = assigneeHint?.trim();
+  if (!hint) {
+    return members.find((member) => !member.isSupervisor) || members[0];
+  }
+
+  const normalizedHint = hint.toLowerCase();
+  const exact = members.find((member) =>
+    member.agentId.toLowerCase() === normalizedHint ||
+    member.agentName.toLowerCase() === normalizedHint,
+  );
+  if (exact) return exact;
+
+  const fuzzy = members.find((member) =>
+    member.agentId.toLowerCase().includes(normalizedHint) ||
+    member.agentName.toLowerCase().includes(normalizedHint) ||
+    normalizedHint.includes(member.agentName.toLowerCase()),
+  );
+  if (fuzzy) return fuzzy;
+
+  if (normalizedHint.includes('监理') || normalizedHint.includes('supervisor')) {
+    return members.find((member) => member.isSupervisor) || members[0];
+  }
+
+  return members.find((member) => !member.isSupervisor) || members[0];
 }
 
 export function getAgentProjects(agentId: string): Project[] {

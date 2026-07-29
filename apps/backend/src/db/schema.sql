@@ -123,7 +123,11 @@ CREATE TABLE IF NOT EXISTS skill_packs (
   name TEXT NOT NULL,
   description TEXT,
   category TEXT DEFAULT 'general',
-  content TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_ext TEXT NOT NULL CHECK(file_ext IN ('zip', 'skill')),
+  file_size INTEGER NOT NULL DEFAULT 0,
+  import_source TEXT NOT NULL DEFAULT 'upload' CHECK(import_source IN ('upload', 'legacy')),
   is_active INTEGER DEFAULT 1,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -134,6 +138,17 @@ CREATE TABLE IF NOT EXISTS tool_overrides (
   tool_name TEXT PRIMARY KEY,
   approval_required INTEGER,
   is_enabled INTEGER DEFAULT 1,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS custom_tools (
+  tool_name TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  approval_required INTEGER DEFAULT 0,
+  params_json TEXT NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

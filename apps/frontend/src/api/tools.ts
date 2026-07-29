@@ -48,3 +48,12 @@ export async function updateToolConfig(
   const resp = await http.patch(`/tools/definitions/${toolName}`, body);
   return resp.data;
 }
+
+export async function createToolDefinition(body: ToolDefinition): Promise<ToolDefinition> {
+  const resp = await http.post('/tools/definitions', body);
+  return resp.data;
+}
+
+export async function deleteToolDefinition(toolName: string): Promise<void> {
+  await http.delete(`/tools/definitions/${toolName}`);
+}

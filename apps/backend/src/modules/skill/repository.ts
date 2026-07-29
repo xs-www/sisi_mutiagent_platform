@@ -1,15 +1,62 @@
 import { getDb } from '../../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
+import { mkdirSync, existsSync, rmSync } from 'fs';
+import { join } from 'path';
+import { config } from '../../config/index.js';
 import type { SkillPack, CreateSkillPackInput, UpdateSkillPackInput } from './types.js';
+
+const skillsDir = join(config.dataDir, 'skills');
+
+function ensureSkillsDir(): void {
+  if (!existsSync(skillsDir)) {
+    mkdirSync(skillsDir, { recursive: true });
+  }
+}
+
+export function getSkillsDirPath(): string {
+  ensureSkillsDir();
+  return skillsDir;
+}
 
 export function createSkillPack(input: CreateSkillPackInput): SkillPack {
   const db = getDb();
   const id = input.id || uuidv4();
 
-  db.prepare(`
-    INSERT INTO skill_packs (id, name, description, category, content, is_active)
-    VALUES (?, ?, ?, ?, ?, 1)
-  `).run(id, input.name, input.description || '', input.category || 'general', input.content);
+  const tableInfo = db.prepare('PRAGMA table_info(skill_packs)').all() as Array<{ name: string }>;
+  const hasLegacyContentColumn = tableInfo.some((c) => c.name === 'content');
+
+  if (hasLegacyContentColumn) {
+    db.prepare(`
+      INSERT INTO skill_packs (id, name, description, category, content, file_name, file_path, file_ext, file_size, import_source, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `).run(
+      id,
+      input.name,
+      input.description || '',
+      input.category || 'general',
+      '',
+      input.fileName,
+      input.filePath,
+      input.fileExt,
+      input.fileSize,
+      input.importSource || 'upload'
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO skill_packs (id, name, description, category, file_name, file_path, file_ext, file_size, import_source, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `).run(
+      id,
+      input.name,
+      input.description || '',
+      input.category || 'general',
+      input.fileName,
+      input.filePath,
+      input.fileExt,
+      input.fileSize,
+      input.importSource || 'upload'
+    );
+  }
 
   return getSkillPackById(id)!;
 }
@@ -49,21 +96,29 @@ export function updateSkillPack(id: string, input: UpdateSkillPackInput): SkillP
   const name = input.name ?? current.name;
   const description = input.description ?? current.description;
   const category = input.category ?? current.category;
-  const content = input.content ?? current.content;
   const isActive = input.isActive !== undefined ? (input.isActive ? 1 : 0) : (current.isActive ? 1 : 0);
 
   db.prepare(`
     UPDATE skill_packs
-    SET name = ?, description = ?, category = ?, content = ?, is_active = ?, updated_at = datetime('now')
+    SET name = ?, description = ?, category = ?, is_active = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(name, description, category, content, isActive, id);
+  `).run(name, description, category, isActive, id);
 
   return getSkillPackById(id);
 }
 
 export function deleteSkillPack(id: string): boolean {
   const db = getDb();
+  const existing = getSkillPackById(id);
   const result = db.prepare('DELETE FROM skill_packs WHERE id = ?').run(id);
+
+  if (result.changes > 0 && existing?.filePath) {
+    const absolute = join(config.dataDir, existing.filePath);
+    if (existsSync(absolute)) {
+      rmSync(absolute, { force: true });
+    }
+  }
+
   return result.changes > 0;
 }
 
@@ -73,7 +128,11 @@ function mapRow(row: any): SkillPack {
     name: row.name,
     description: row.description || '',
     category: row.category || 'general',
-    content: row.content,
+    fileName: row.file_name || '',
+    filePath: row.file_path || '',
+    fileExt: (row.file_ext || 'skill') as 'zip' | 'skill',
+    fileSize: Number(row.file_size || 0),
+    importSource: (row.import_source || 'legacy') as 'upload' | 'legacy',
     isActive: !!row.is_active,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

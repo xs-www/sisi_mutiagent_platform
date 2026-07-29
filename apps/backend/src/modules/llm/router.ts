@@ -1,26 +1,109 @@
 // apps/backend/src/modules/llm/router.ts
 import { chat as ollamaChat, checkOllamaStatus } from './ollama.js';
-import { chatOpenAICompatible, chatAnthropic } from './external.js';
+import { chatOpenAICompatible, chatAnthropic, PROVIDER_MODELS } from './external.js';
 import { config } from '../../config/index.js';
 import type { ChatMessage, ChatResponse } from './types.js';
 import { getActivePlatformModels } from '../platform/repository.js';
+
+type CandidateModel = {
+  provider: string;
+  modelName: string;
+  priority: number;
+  source: 'platform' | 'apikey-implicit';
+};
+
+function providerDefaultModel(provider: string): string | null {
+  const candidates = PROVIDER_MODELS[provider];
+  if (!candidates || candidates.length === 0) return null;
+  return candidates[0];
+}
+
+function dedupeCandidates(items: CandidateModel[]): CandidateModel[] {
+  const seen = new Set<string>();
+  const out: CandidateModel[] = [];
+  for (const item of items) {
+    const key = `${item.provider}::${item.modelName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+async function hasAvailableApiKey(provider: string): Promise<boolean> {
+  const { getActiveApiKeysByProvider } = await import('../apikeys/repository.js');
+  const { selectAvailableKey } = await import('../apikeys/concurrency.js');
+  const keys = getActiveApiKeysByProvider(provider);
+  if (keys.length === 0) return false;
+  const keyId = selectAvailableKey(keys.map(k => ({ id: k.id, maxConcurrency: k.maxConcurrency })));
+  return !!keyId;
+}
+
+async function buildPreferredCandidates(): Promise<CandidateModel[]> {
+  const platformModels = getActivePlatformModels();
+  const platformCandidates: CandidateModel[] = platformModels.map((m) => ({
+    provider: m.provider,
+    modelName: m.modelName,
+    priority: m.priority,
+    source: 'platform',
+  }));
+
+  // 从活跃 API Key 自动生成候选模型（即使用户未在平台模型池手动配置）
+  const { getAllActiveApiKeys } = await import('../apikeys/repository.js');
+  const activeKeys = getAllActiveApiKeys();
+  const providerSet = new Set(activeKeys.map(k => k.provider));
+
+  const implicitCandidates: CandidateModel[] = [];
+  for (const provider of providerSet) {
+    if (provider === 'ollama') continue;
+    const defaultModel = providerDefaultModel(provider);
+    if (!defaultModel) continue;
+    implicitCandidates.push({
+      provider,
+      modelName: defaultModel,
+      priority: -100,
+      source: 'apikey-implicit',
+    });
+  }
+
+  const merged = dedupeCandidates([...implicitCandidates, ...platformCandidates]);
+  const external = merged.filter(m => m.provider !== 'ollama');
+  const local = merged.filter(m => m.provider === 'ollama');
+
+  const extAvailable: CandidateModel[] = [];
+  const extBusyOrUnavailable: CandidateModel[] = [];
+  for (const item of external) {
+    if (await hasAvailableApiKey(item.provider)) {
+      extAvailable.push(item);
+    } else {
+      extBusyOrUnavailable.push(item);
+    }
+  }
+
+  // 排序规则：有可用并发的外部Key优先，其次其它外部，最后本地Ollama
+  extAvailable.sort((a, b) => a.priority - b.priority);
+  extBusyOrUnavailable.sort((a, b) => a.priority - b.priority);
+  local.sort((a, b) => a.priority - b.priority);
+
+  return [...extAvailable, ...extBusyOrUnavailable, ...local];
+}
 
 // 从平台模型池按优先级依次尝试，直到成功
 export async function chatWithPlatformModels(
   messages: ChatMessage[],
   options?: { temperature?: number }
 ): Promise<ChatResponse> {
-  const models = getActivePlatformModels();
+  const models = await buildPreferredCandidates();
 
   if (models.length === 0) {
-    throw new Error('平台未配置任何可用模型，请在平台设置中添加模型');
+    throw new Error('平台未配置任何可用模型，且未发现可用 API Key。请在平台设置中添加模型或配置 API Key。');
   }
 
   let lastError: Error | null = null;
 
   for (const model of models) {
     try {
-      console.log(`[LLM] 尝试模型: ${model.provider}/${model.modelName} (priority=${model.priority})`);
+      console.log(`[LLM] 尝试模型: ${model.provider}/${model.modelName} (priority=${model.priority}, source=${model.source})`);
       const result = await callModel(model.provider, model.modelName, messages, options);
       return result;
     } catch (error: any) {

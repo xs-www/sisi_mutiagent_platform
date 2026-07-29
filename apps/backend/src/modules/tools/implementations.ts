@@ -3,6 +3,10 @@ import { join, normalize, isAbsolute } from 'path';
 import { execSync } from 'child_process';
 import axios from 'axios';
 import type { ToolExecutionResult } from './types.js';
+import type { ToolExecutionContext } from './types.js';
+import { getProjectMemberProfiles, resolveProjectAssignee } from '../project/repository.js';
+import { createTicket } from '../ticket/repository.js';
+import { getTicketById } from '../ticket/repository.js';
 
 // ========== 安全工具：路径检查 ==========
 function resolveSafePath(workspacePath: string, userPath: string): { error?: string; path?: string } {
@@ -287,10 +291,69 @@ export function toolGitOperation(params: Record<string, any>, workspacePath: str
 
 // ========== 工具分发器 ==========
 
+export function resolveToolProjectId(params: Record<string, any>, context: ToolExecutionContext): string | undefined {
+  const explicitProjectId = typeof params.projectId === 'string' ? params.projectId.trim() : '';
+  if (explicitProjectId) return explicitProjectId;
+
+  const contextProjectId = context.projectId?.trim();
+  if (contextProjectId) return contextProjectId;
+
+  const ticketId = context.ticketId?.trim();
+  if (!ticketId) return undefined;
+
+  const ticket = getTicketById(ticketId);
+  return ticket?.projectId?.trim();
+}
+
+export function toolGetProjectMembers(params: Record<string, any>, context: ToolExecutionContext): ToolExecutionResult {
+  const startTime = Date.now();
+  const projectId = resolveToolProjectId(params, context);
+  if (!projectId) {
+    return { success: false, output: '', error: '缺少必填参数: projectId', durationMs: Date.now() - startTime };
+  }
+
+  const members = getProjectMemberProfiles(projectId);
+  return {
+    success: true,
+    output: JSON.stringify(members, null, 2),
+    durationMs: Date.now() - startTime,
+  };
+}
+
+export function toolCreateTicket(params: Record<string, any>, context: ToolExecutionContext): ToolExecutionResult {
+  const startTime = Date.now();
+  const projectId = resolveToolProjectId(params, context);
+  const title = params.title as string;
+  if (!projectId) return { success: false, output: '', error: '缺少必填参数: projectId', durationMs: Date.now() - startTime };
+  if (!title) return { success: false, output: '', error: '缺少必填参数: title', durationMs: Date.now() - startTime };
+
+  const assignee = resolveProjectAssignee(projectId, params.assignee as string | undefined);
+  const ticket = createTicket({
+    projectId,
+    title,
+    description: (params.description as string) || '',
+    type: (params.type as any) || 'task',
+    priority: (params.priority as any) || 'medium',
+    assigneeId: assignee?.agentId,
+    createdBy: context.agentId || 'agent',
+    parentTicketId: (params.parentTicketId as string) || context.ticketId,
+  });
+
+  return {
+    success: true,
+    output: JSON.stringify({
+      ticket,
+      resolvedAssignee: assignee,
+    }, null, 2),
+    durationMs: Date.now() - startTime,
+  };
+}
+
 export async function executeToolImplementation(
   toolName: string,
   params: Record<string, any>,
-  workspacePath: string
+  workspacePath: string,
+  context: ToolExecutionContext = { workspacePath }
 ): Promise<ToolExecutionResult> {
   switch (toolName) {
     case 'file_read': return toolFileRead(params, workspacePath);
@@ -300,6 +363,8 @@ export async function executeToolImplementation(
     case 'http_request': return await toolHttpRequest(params, workspacePath);
     case 'code_search': return toolCodeSearch(params, workspacePath);
     case 'git_operation': return toolGitOperation(params, workspacePath);
+    case 'get_project_members': return toolGetProjectMembers(params, context);
+    case 'create_ticket': return toolCreateTicket(params, context);
     default:
       return { success: false, output: '', error: `未知工具: ${toolName}` };
   }

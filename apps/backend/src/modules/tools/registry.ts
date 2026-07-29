@@ -1,6 +1,15 @@
 import type { ToolDefinition } from './types.js';
 import { getDb } from '../../db/index.js';
 
+type CustomToolRow = {
+  tool_name: string;
+  description: string;
+  category: string;
+  approval_required: number | null;
+  params_json: string;
+  is_active: number | null;
+};
+
 export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
   file_read: {
     name: 'file_read',
@@ -70,8 +79,51 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
       { name: 'command', type: 'string', required: true, description: 'Git子命令（status/log/add/commit/push/pull等）' },
       { name: 'args', type: 'object', required: false, description: '命令参数数组' }
     ]
+  },
+  get_project_members: {
+    name: 'get_project_members',
+    description: '获取当前项目组成员列表，用于任务分配与协作确认',
+    category: 'project',
+    approvalRequired: false,
+    params: [
+      { name: 'projectId', type: 'string', required: false, description: '项目ID，不传则使用当前上下文项目' }
+    ]
+  },
+  create_ticket: {
+    name: 'create_ticket',
+    description: '在当前项目中发起新工单，并可指定项目成员作为指派对象',
+    category: 'project',
+    approvalRequired: false,
+    params: [
+      { name: 'projectId', type: 'string', required: false, description: '项目ID，不传则使用当前上下文项目' },
+      { name: 'title', type: 'string', required: true, description: '工单标题' },
+      { name: 'description', type: 'string', required: false, description: '工单描述' },
+      { name: 'type', type: 'string', required: false, description: '工单类型，默认 task' },
+      { name: 'priority', type: 'string', required: false, description: '优先级，默认 medium' },
+      { name: 'assignee', type: 'string', required: false, description: '指派对象的 agentId 或名称' }
+    ]
   }
 };
+
+function mapCustomRow(row: CustomToolRow): ToolDefinition {
+  return {
+    name: row.tool_name,
+    description: row.description,
+    category: row.category as ToolDefinition['category'],
+    approvalRequired: !!row.approval_required,
+    params: JSON.parse(row.params_json || '[]'),
+  };
+}
+
+export function getCustomToolDefinitions(): ToolDefinition[] {
+  try {
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM custom_tools WHERE is_active = 1 ORDER BY created_at ASC').all() as CustomToolRow[];
+    return rows.map(mapCustomRow);
+  } catch {
+    return [];
+  }
+}
 
 export function getToolDefinition(name: string): ToolDefinition | null {
   return TOOL_REGISTRY[name] || null;
@@ -90,26 +142,66 @@ export function getApprovalRequiredTools(): string[] {
 // 从DB加载覆盖配置后的工具定义
 export function getEffectiveToolDefinition(name: string): ToolDefinition | null {
   const base = TOOL_REGISTRY[name];
-  if (!base) return null;
+  if (base) {
+    // 从DB加载覆盖
+    try {
+      const db = getDb();
+      const row = db.prepare('SELECT * FROM tool_overrides WHERE tool_name = ?').get(name) as any;
+      if (row) {
+        return {
+          ...base,
+          approvalRequired: row.approval_required !== null ? !!row.approval_required : base.approvalRequired,
+        };
+      }
+    } catch {
+      // DB可能还没初始化
+    }
+    return base;
+  }
 
-  // 从DB加载覆盖
   try {
     const db = getDb();
-    const row = db.prepare('SELECT * FROM tool_overrides WHERE tool_name = ?').get(name) as any;
-    if (row) {
-      return {
-        ...base,
-        approvalRequired: row.approval_required !== null ? !!row.approval_required : base.approvalRequired,
-      };
-    }
+    const row = db.prepare('SELECT * FROM custom_tools WHERE tool_name = ? AND is_active = 1').get(name) as CustomToolRow | undefined;
+    if (row) return mapCustomRow(row);
   } catch {
     // DB可能还没初始化
   }
-  return base;
+
+  return null;
 }
 
 export function getAllEffectiveToolDefinitions(): ToolDefinition[] {
-  return Object.keys(TOOL_REGISTRY).map(name => getEffectiveToolDefinition(name)!).filter(Boolean);
+  const builtins = Object.keys(TOOL_REGISTRY).map(name => getEffectiveToolDefinition(name)!).filter(Boolean);
+  const customs = getCustomToolDefinitions();
+  const merged = [...builtins, ...customs];
+  const seen = new Set<string>();
+  return merged.filter((item) => {
+    if (seen.has(item.name)) return false;
+    seen.add(item.name);
+    return true;
+  });
+}
+
+export function createCustomToolDefinition(def: ToolDefinition): ToolDefinition {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO custom_tools (tool_name, description, category, approval_required, params_json, is_active, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+    ON CONFLICT(tool_name) DO UPDATE SET
+      description = excluded.description,
+      category = excluded.category,
+      approval_required = excluded.approval_required,
+      params_json = excluded.params_json,
+      is_active = 1,
+      updated_at = datetime('now')
+  `).run(def.name, def.description, def.category, def.approvalRequired ? 1 : 0, JSON.stringify(def.params));
+  return getEffectiveToolDefinition(def.name)!;
+}
+
+export function deleteCustomToolDefinition(toolName: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM custom_tools WHERE tool_name = ?').run(toolName);
+  return result.changes > 0;
 }
 
 export function setToolOverride(toolName: string, approvalRequired?: boolean): void {

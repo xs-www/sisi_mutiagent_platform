@@ -22,15 +22,10 @@ import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, EyeOutlined, DeleteOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
 import { getAgents, getAgent, deleteAgent, createAgent, updateAgent } from '../api/agent';
 import { getSkillPacks } from '../api/skill';
-import type { Agent, AgentConfig, SkillPack } from '../types';
+import { getToolDefinitions } from '../api/tools';
+import type { Agent, AgentConfig, SkillPack, ToolDefinition } from '../types';
 
 const { Title, Paragraph, Text } = Typography;
-
-// 全部可用工具
-const ALL_TOOLS = [
-  'file_read', 'file_write', 'file_delete',
-  'shell_execute', 'http_request', 'code_search', 'git_operation',
-];
 
 export default function Agents() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -42,6 +37,7 @@ export default function Agents() {
   const [editTarget, setEditTarget] = useState<Agent | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
   const [skillPacks, setSkillPacks] = useState<SkillPack[]>([]);
+  const [toolDefinitions, setToolDefinitions] = useState<ToolDefinition[]>([]);
   const [form] = Form.useForm();
 
   const loadAgents = useCallback(async () => {
@@ -65,10 +61,20 @@ export default function Agents() {
     }
   }, []);
 
+  const loadToolDefinitions = useCallback(async () => {
+    try {
+      const data = await getToolDefinitions();
+      setToolDefinitions(data);
+    } catch (error) {
+      console.error('加载工具定义失败:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadAgents();
     loadSkillPacks();
-  }, [loadAgents, loadSkillPacks]);
+    loadToolDefinitions();
+  }, [loadAgents, loadSkillPacks, loadToolDefinitions]);
 
   const handleViewDetail = async (id: string) => {
     setDrawerOpen(true);
@@ -341,8 +347,8 @@ export default function Agents() {
 
           <Form.Item name="tools" label="可用工具">
             <Select mode="multiple" placeholder="选择工具">
-              {ALL_TOOLS.map(t => (
-                <Select.Option key={t} value={t}>{t}</Select.Option>
+              {toolDefinitions.map(t => (
+                <Select.Option key={t.name} value={t.name}>{t.name}</Select.Option>
               ))}
             </Select>
           </Form.Item>

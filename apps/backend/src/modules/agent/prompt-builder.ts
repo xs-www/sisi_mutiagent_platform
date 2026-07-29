@@ -3,6 +3,7 @@ import type { AgentConfig } from './types.js';
 import type { Ticket, Message } from '../ticket/types.js';
 import { formatMemoriesForPrompt } from '../memory/index.js';
 import type { ChatMessage } from '../llm/types.js';
+import { getProjectMemberProfiles } from '../project/repository.js';
 
 // 平台基础工具描述
 const TOOL_DESCRIPTIONS: Record<string, string> = {
@@ -12,7 +13,9 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   shell_execute: '执行Shell命令。参数: { command: string }（需审批）',
   http_request: '发送HTTP请求。参数: { url: string, method: string, body?: string }',
   code_search: '搜索代码库。参数: { query: string, path?: string }',
-  git_operation: 'Git操作。参数: { command: string, args?: string[] }'
+  git_operation: 'Git操作。参数: { command: string, args?: string[] }',
+  get_project_members: '获取当前项目组成员。参数: { projectId?: string }，可省略，系统会尽量从当前工单推断',
+  create_ticket: '发起工单。参数: { projectId?: string, title: string, description?: string, type?: string, priority?: string, assignee?: string }，可省略 projectId，系统会尽量从当前工单推断'
 };
 
 export interface ReActStep {
@@ -70,6 +73,21 @@ export function buildReActPrompt(
   if (memoryText !== '（暂无记忆）') {
     systemParts.push('\n## 记忆');
     systemParts.push(memoryText);
+  }
+
+  if (projectId) {
+    const members = getProjectMemberProfiles(projectId);
+    systemParts.push('\n## 当前项目成员（可分配对象）');
+    if (members.length === 0) {
+      systemParts.push('（当前项目暂无成员）');
+    } else {
+      for (const member of members) {
+        const roleLabel = member.isSupervisor ? 'supervisor' : member.agentRole;
+        systemParts.push(`- ${member.agentName} [${member.agentId}] (${roleLabel})`);
+      }
+    }
+    systemParts.push('分配工单时必须优先从以上成员中选择 assignee，且优先使用 agentId 而不是显示名。');
+    systemParts.push('如果你要创建子工单，请在 create_ticket 中显式填写 assignee 字段。');
   }
 
   chatMessages.push({

@@ -307,10 +307,23 @@ export default function TicketDetail() {
     if (msg.messageType === 'action') {
       return (
         <div key={msg.id} style={{ margin: '8px 0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Tag color="blue" style={{ padding: '4px 8px', margin: 0 }}>
-              ⚡ 行动 · {msg.content}
-            </Tag>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+            <div
+              style={{
+                flex: 1,
+                background: '#e6f4ff',
+                border: '1px solid #91caff',
+                color: '#0958d9',
+                padding: '8px 12px',
+                borderRadius: 10,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                lineHeight: 1.6,
+              }}
+            >
+              <Text strong style={{ color: '#0958d9' }}>⚡ 行动日志</Text>
+              <div style={{ marginTop: 4 }}>{msg.content}</div>
+            </div>
             <Text type="secondary" style={{ fontSize: 12 }}>
               {time}
             </Text>
@@ -554,27 +567,35 @@ export default function TicketDetail() {
 
       {/* 底部输入区 */}
       <Card size="small" style={{ marginTop: 16 }}>
-        <Space.Compact style={{ width: '100%' }}>
-          <Input
+        <Space direction="vertical" style={{ width: '100%' }} size={8}>
+          <Input.TextArea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="输入消息，按回车发送..."
-            onPressEnter={handleSend}
+            placeholder="输入消息，Enter 发送，Shift+Enter 换行..."
             disabled={sending}
+            autoSize={{ minRows: 2, maxRows: 6 }}
             autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
           />
-          <Tooltip title="发送消息">
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleSend}
-              loading={sending}
-              disabled={!inputText.trim()}
-            >
-              发送
-            </Button>
-          </Tooltip>
-        </Space.Compact>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Tooltip title="发送消息">
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={handleSend}
+                loading={sending}
+                disabled={!inputText.trim()}
+              >
+                发送
+              </Button>
+            </Tooltip>
+          </div>
+        </Space>
       </Card>
     </div>
   );

@@ -8,9 +8,17 @@ export interface ToolParam {
 export interface ToolDefinition {
   name: string;
   description: string;
-  category: 'file' | 'shell' | 'network' | 'git' | 'code';
+  category: 'file' | 'shell' | 'network' | 'git' | 'code' | 'project' | 'custom';
   approvalRequired: boolean;
   params: ToolParam[];
+}
+
+export interface ToolExecutionContext {
+  workspacePath: string;
+  projectId?: string;
+  ticketId?: string;
+  agentId?: string;
+  agentName?: string;
 }
 
 export interface ToolExecutionResult {

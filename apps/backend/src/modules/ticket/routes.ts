@@ -7,8 +7,47 @@ import {
 } from './repository.js';
 import type { CreateTicketInput, CreateMessageInput } from './types.js';
 import type { TicketType, TicketPriority, TicketStatus, MessageSenderType, MessageType } from '../../types/index.js';
+import { resolveProjectAssignee } from '../project/repository.js';
 
 export const ticketRouter = Router();
+
+// Agent 代创建工单
+ticketRouter.post('/from-agent', (req, res) => {
+  try {
+    const projectId = req.body.projectId as string;
+    const title = req.body.title as string;
+    const description = (req.body.description || '') as string;
+    const type = req.body.type as TicketType;
+    const priority = req.body.priority as TicketPriority;
+    const assigneeHint = req.body.assignee as string | undefined;
+    const createdBy = req.body.createdBy as string;
+    const parentTicketId = req.body.parentTicketId as string | undefined;
+
+    if (!projectId || !title || !type || !createdBy) {
+      return res.status(400).json({ error: 'projectId, title, type, createdBy are required' });
+    }
+
+    const assignee = resolveProjectAssignee(projectId, assigneeHint);
+    const ticket = createTicket({
+      projectId,
+      title,
+      description,
+      type,
+      priority,
+      assigneeId: assignee?.agentId,
+      createdBy,
+      parentTicketId,
+    });
+
+    res.status(201).json({
+      ticket,
+      resolvedAssignee: assignee || null,
+    });
+  } catch (error: any) {
+    console.error('Error creating ticket from agent:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // 创建工单
 ticketRouter.post('/', (req, res) => {

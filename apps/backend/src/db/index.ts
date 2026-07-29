@@ -6,6 +6,37 @@ import { config } from '../config/index.js';
 
 let db: Database.Database | null = null;
 
+function hasColumn(database: Database.Database, tableName: string, columnName: string): boolean {
+  const rows = database.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return rows.some((r) => r.name === columnName);
+}
+
+function migrateSkillPacksTable(database: Database.Database): void {
+  const tableExists = database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skill_packs'")
+    .get();
+
+  if (!tableExists) {
+    return;
+  }
+
+  if (!hasColumn(database, 'skill_packs', 'file_name')) {
+    database.exec("ALTER TABLE skill_packs ADD COLUMN file_name TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(database, 'skill_packs', 'file_path')) {
+    database.exec("ALTER TABLE skill_packs ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(database, 'skill_packs', 'file_ext')) {
+    database.exec("ALTER TABLE skill_packs ADD COLUMN file_ext TEXT NOT NULL DEFAULT 'skill'");
+  }
+  if (!hasColumn(database, 'skill_packs', 'file_size')) {
+    database.exec("ALTER TABLE skill_packs ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn(database, 'skill_packs', 'import_source')) {
+    database.exec("ALTER TABLE skill_packs ADD COLUMN import_source TEXT NOT NULL DEFAULT 'legacy'");
+  }
+}
+
 export function getDb(): Database.Database {
   if (!db) {
     throw new Error('Database not initialized. Call initDb() first.');
@@ -22,7 +53,7 @@ export function initDb(): Database.Database {
   db.pragma('journal_mode = WAL');
 
   // 执行建表语句
-  const schemaPath = join(import.meta.dirname, 'schema.sql');
+  const schemaPath = join(__dirname, 'schema.sql');
   const schema = readFileSync(schemaPath, 'utf-8');
 
   // 移除单行注释，然后分割并执行每条SQL语句
@@ -39,6 +70,8 @@ export function initDb(): Database.Database {
   for (const statement of statements) {
     db.exec(statement);
   }
+
+  migrateSkillPacksTable(db);
 
   console.log('Database initialized successfully');
   return db;

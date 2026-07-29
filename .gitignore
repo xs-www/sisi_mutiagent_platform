@@ -40,3 +40,6 @@ data/*.db-shm
 # Runtime
 *.pid
 *.seed
+
+#
+*.zip

@@ -74,10 +74,10 @@ function parseAction(actionStr: string): Omit<ParsedAction, 'thought' | 'raw'> {
   }
 
   // tool_call(name, {params})
-  const toolMatch = actionStr.match(/^tool_call\s*\(\s*([^,]+?)\s*,?\s*(.*)?\s*\)$/s);
+  const toolMatch = actionStr.match(/^tool_call\s*\(\s*([^\s,()]+|['"][^'"]+['"])\s*(?:,\s*([\s\S]*))?\)$/s);
   if (toolMatch) {
     const toolName = toolMatch[1].trim().replace(/['"]/g, '');
-    const paramsStr = toolMatch[2]?.trim() || '{}';
+    const paramsStr = (toolMatch[2] || '').trim() || '{}';
     let toolParams: Record<string, any> = {};
 
     try {
@@ -85,6 +85,11 @@ function parseAction(actionStr: string): Omit<ParsedAction, 'thought' | 'raw'> {
     } catch {
       // 尝试简单的参数解析
       toolParams = parseSimpleParams(paramsStr);
+    }
+
+    if (!toolName) {
+      console.warn(`Parsed empty tool name from action: ${actionStr}`);
+      return { type: 'finish' };
     }
 
     return { type: 'tool_call', toolName, toolParams };
@@ -118,11 +123,11 @@ function parseAction(actionStr: string): Omit<ParsedAction, 'thought' | 'raw'> {
   return { type: 'finish' };
 }
 
-// 简单参数解析：处理 key: value, key: value 格式
+// 简单参数解析：处理 key: value 和 key=value 格式
 function parseSimpleParams(str: string): Record<string, any> {
   const params: Record<string, any> = {};
-  // 匹配 key: "value" 或 key: value
-  const regex = /(\w+):\s*(?:"([^"]*)"|'([^']*)'|([^,}\s]+))/g;
+  // 匹配 key: "value"、key='value'、key=value
+  const regex = /(\w+)\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|([^,}\s]+))/g;
   let match;
 
   while ((match = regex.exec(str)) !== null) {

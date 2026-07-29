@@ -3,7 +3,11 @@ export interface SkillPack {
   name: string;
   description: string;
   category: string;
-  content: string;
+  fileName: string;
+  filePath: string;
+  fileExt: 'zip' | 'skill';
+  fileSize: number;
+  importSource: 'upload' | 'legacy';
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -14,13 +18,16 @@ export interface CreateSkillPackInput {
   name: string;
   description?: string;
   category?: string;
-  content: string;
+  fileName: string;
+  filePath: string;
+  fileExt: 'zip' | 'skill';
+  fileSize: number;
+  importSource?: 'upload' | 'legacy';
 }
 
 export interface UpdateSkillPackInput {
   name?: string;
   description?: string;
   category?: string;
-  content?: string;
   isActive?: boolean;
 }

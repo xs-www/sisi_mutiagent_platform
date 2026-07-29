@@ -4,6 +4,7 @@ import {
   createProject, getProjectById, getAllProjects, updateProject, deleteProject,
   addProjectMember, removeProjectMember, getProjectMembers, getAgentProjects
 } from './repository.js';
+import { getProjectMemberProfiles } from './repository.js';
 import type { CreateProjectInput, UpdateProjectInput } from './types.js';
 
 export const projectRouter = Router();
@@ -99,6 +100,16 @@ projectRouter.delete('/:id', (req, res) => {
 projectRouter.get('/:id/members', (req, res) => {
   try {
     const members = getProjectMembers(req.params.id);
+    res.json(members);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取项目成员画像（含Agent名称/角色，供主Agent做任务分配）
+projectRouter.get('/:id/agent-group', (req, res) => {
+  try {
+    const members = getProjectMemberProfiles(req.params.id);
     res.json(members);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

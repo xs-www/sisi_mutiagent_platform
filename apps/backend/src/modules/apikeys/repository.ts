@@ -34,6 +34,12 @@ export function getActiveApiKeysByProvider(provider: string): ApiKey[] {
   return rows.map(mapRow);
 }
 
+export function getAllActiveApiKeys(): ApiKey[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM api_keys WHERE is_active = 1 ORDER BY created_at ASC').all() as any[];
+  return rows.map(mapRow);
+}
+
 export function updateApiKey(id: string, input: UpdateApiKeyInput): ApiKey | null {
   const db = getDb();
   const current = getApiKeyById(id);

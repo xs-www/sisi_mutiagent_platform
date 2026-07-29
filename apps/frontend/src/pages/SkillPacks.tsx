@@ -11,25 +11,26 @@ import {
   Select,
   Switch,
   Popconfirm,
-  Spin,
   message,
   Card,
   Empty,
   Drawer,
   Descriptions,
+  Upload,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, ImportOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DeleteOutlined, EditOutlined, EyeOutlined, ImportOutlined, DownloadOutlined } from '@ant-design/icons';
 import {
   getSkillPacks,
-  createSkillPack,
+  importSkillPackFile,
   updateSkillPack,
   deleteSkillPack,
+  getSkillPackDownloadUrl,
 } from '../api/skill';
 import type { SkillPack } from '../types';
 import { formatDate } from '../utils';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 const CATEGORY_COLOR: Record<string, string> = {
   general: 'default',
@@ -41,16 +42,24 @@ const CATEGORY_COLOR: Record<string, string> = {
   analysis: 'geekblue',
 };
 
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 export default function SkillPacks() {
   const [skills, setSkills] = useState<SkillPack[]>([]);
   const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<SkillPack | null>(null);
   const [saving, setSaving] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSkill, setDrawerSkill] = useState<SkillPack | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [form] = Form.useForm();
+  const [fileList, setFileList] = useState<any[]>([]);
+
+  const [editForm] = Form.useForm();
   const [importForm] = Form.useForm();
 
   const loadSkills = useCallback(async () => {
@@ -69,55 +78,38 @@ export default function SkillPacks() {
     loadSkills();
   }, [loadSkills]);
 
-  const handleCreate = () => {
-    setEditTarget(null);
-    form.resetFields();
-    form.setFieldsValue({ category: 'general', isActive: true });
-    setModalOpen(true);
-  };
-
   const handleEdit = (record: SkillPack) => {
     setEditTarget(record);
-    form.setFieldsValue({
+    editForm.setFieldsValue({
       name: record.name,
       description: record.description,
       category: record.category,
-      content: record.content,
       isActive: record.isActive,
     });
-    setModalOpen(true);
+    setEditOpen(true);
   };
 
-  const handleSave = async () => {
+  const handleSaveEdit = async () => {
+    if (!editTarget) return;
     try {
-      const values = await form.validateFields();
+      const values = await editForm.validateFields();
       setSaving(true);
 
-      if (editTarget) {
-        await updateSkillPack(editTarget.id, {
-          name: values.name,
-          description: values.description,
-          category: values.category,
-          content: values.content,
-          isActive: values.isActive,
-        });
-        message.success('Skill 包更新成功');
-      } else {
-        await createSkillPack({
-          name: values.name,
-          description: values.description,
-          category: values.category,
-          content: values.content,
-        });
-        message.success('Skill 包导入成功');
-      }
+      await updateSkillPack(editTarget.id, {
+        name: values.name,
+        description: values.description,
+        category: values.category,
+        isActive: values.isActive,
+      });
 
-      setModalOpen(false);
-      form.resetFields();
+      message.success('Skill 包元数据更新成功');
+      setEditOpen(false);
+      setEditTarget(null);
+      editForm.resetFields();
       loadSkills();
     } catch (error: any) {
       if (error?.errorFields) return;
-      console.error('保存 Skill 包失败:', error);
+      console.error('更新 Skill 包失败:', error);
     } finally {
       setSaving(false);
     }
@@ -136,7 +128,7 @@ export default function SkillPacks() {
   const handleToggleActive = async (record: SkillPack, checked: boolean) => {
     try {
       await updateSkillPack(record.id, { isActive: checked });
-      setSkills(prev => prev.map(s => s.id === record.id ? { ...s, isActive: checked } : s));
+      setSkills((prev) => prev.map((s) => (s.id === record.id ? { ...s, isActive: checked } : s)));
     } catch (error) {
       console.error('更新状态失败:', error);
     }
@@ -147,32 +139,37 @@ export default function SkillPacks() {
     setDrawerOpen(true);
   };
 
-  const handleImportJson = async () => {
+  const handleImportFile = async () => {
     try {
       const values = await importForm.validateFields();
-      setSaving(true);
-      // 解析 JSON 导入
-      const parsed = JSON.parse(values.jsonContent);
-      const items = Array.isArray(parsed) ? parsed : [parsed];
-      let successCount = 0;
-      for (const item of items) {
-        if (item.name && item.content) {
-          await createSkillPack({
-            name: item.name,
-            description: item.description || '',
-            category: item.category || 'general',
-            content: item.content,
-          });
-          successCount++;
-        }
+      const file = fileList[0]?.originFileObj as File | undefined;
+      if (!file) {
+        message.error('请选择要导入的 .zip 或 .skill 文件');
+        return;
       }
-      message.success(`成功导入 ${successCount} 个 Skill 包`);
+
+      const lower = file.name.toLowerCase();
+      if (!lower.endsWith('.zip') && !lower.endsWith('.skill')) {
+        message.error('仅支持 .zip 或 .skill 文件');
+        return;
+      }
+
+      setSaving(true);
+      await importSkillPackFile({
+        file,
+        name: values.name,
+        description: values.description,
+        category: values.category,
+      });
+
+      message.success('Skill 包导入成功');
       setImportOpen(false);
       importForm.resetFields();
+      setFileList([]);
       loadSkills();
     } catch (error: any) {
       if (error?.errorFields) return;
-      message.error('导入失败: ' + (error.message || 'JSON 格式错误'));
+      console.error('导入 Skill 包失败:', error);
     } finally {
       setSaving(false);
     }
@@ -190,8 +187,19 @@ export default function SkillPacks() {
       dataIndex: 'category',
       key: 'category',
       width: 120,
-      render: (cat: string) => (
-        <Tag color={CATEGORY_COLOR[cat] || 'default'}>{cat}</Tag>
+      render: (cat: string) => <Tag color={CATEGORY_COLOR[cat] || 'default'}>{cat}</Tag>,
+    },
+    {
+      title: '文件',
+      key: 'file',
+      width: 260,
+      render: (_: any, record: SkillPack) => (
+        <Space direction="vertical" size={0}>
+          <Text>{record.fileName || '-'}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {record.fileExt.toUpperCase()} · {formatBytes(record.fileSize)}
+          </Text>
+        </Space>
       ),
     },
     {
@@ -220,11 +228,14 @@ export default function SkillPacks() {
     {
       title: '操作',
       key: 'action',
-      width: 180,
+      width: 260,
       render: (_: any, record: SkillPack) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)}>
             查看
+          </Button>
+          <Button type="link" size="small" icon={<DownloadOutlined />} href={getSkillPackDownloadUrl(record.id)}>
+            下载
           </Button>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
@@ -251,10 +262,7 @@ export default function SkillPacks() {
         <Title level={3} style={{ margin: 0 }}>Skill 包配置</Title>
         <Space>
           <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
-            JSON 导入
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            添加 Skill 包
+            导入 .zip/.skill
           </Button>
           <Button icon={<ReloadOutlined />} onClick={loadSkills} loading={loading}>
             刷新
@@ -264,7 +272,7 @@ export default function SkillPacks() {
 
       <Card style={{ marginBottom: 16 }}>
         <Text type="secondary">
-          Skill 包是可复用的能力定义，可在 Agent 配置中引用。每个 Skill 包包含名称、分类、描述和内容（Prompt 片段或能力定义）。
+          Skill 包实体文件保存在 data/skills 目录，数据库仅保存元数据。支持从前端导入 .zip 或 .skill 文件。
         </Text>
       </Card>
 
@@ -282,7 +290,7 @@ export default function SkillPacks() {
         title="Skill 包详情"
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setDrawerSkill(null); }}
-        width={560}
+        width={620}
         destroyOnClose
       >
         {drawerSkill && (
@@ -296,13 +304,19 @@ export default function SkillPacks() {
               <Descriptions.Item label="状态">
                 {drawerSkill.isActive ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>}
               </Descriptions.Item>
+              <Descriptions.Item label="导入来源">{drawerSkill.importSource}</Descriptions.Item>
               <Descriptions.Item label="创建时间">{formatDate(drawerSkill.createdAt)}</Descriptions.Item>
             </Descriptions>
-            <Descriptions title="内容" bordered column={1} size="small">
-              <Descriptions.Item label="Content">
-                <Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 13 }}>
-                  {drawerSkill.content}
-                </Paragraph>
+
+            <Descriptions title="文件信息" bordered column={1} size="small">
+              <Descriptions.Item label="文件名">{drawerSkill.fileName}</Descriptions.Item>
+              <Descriptions.Item label="格式">{drawerSkill.fileExt.toUpperCase()}</Descriptions.Item>
+              <Descriptions.Item label="大小">{formatBytes(drawerSkill.fileSize)}</Descriptions.Item>
+              <Descriptions.Item label="存储路径">{drawerSkill.filePath}</Descriptions.Item>
+              <Descriptions.Item label="下载">
+                <Button size="small" icon={<DownloadOutlined />} href={getSkillPackDownloadUrl(drawerSkill.id)}>
+                  下载文件
+                </Button>
               </Descriptions.Item>
             </Descriptions>
           </Space>
@@ -310,20 +324,41 @@ export default function SkillPacks() {
       </Drawer>
 
       <Modal
-        title={editTarget ? '编辑 Skill 包' : '添加 Skill 包'}
-        open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); setEditTarget(null); }}
-        onOk={handleSave}
+        title="导入 Skill 包文件"
+        open={importOpen}
+        onCancel={() => {
+          setImportOpen(false);
+          importForm.resetFields();
+          setFileList([]);
+        }}
+        onOk={handleImportFile}
         confirmLoading={saving}
         width={640}
         destroyOnClose
-        okText="保存"
+        okText="导入"
         cancelText="取消"
       >
-        <Form form={form} layout="vertical" initialValues={{ category: 'general', isActive: true }}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="如：代码审查专家" />
+        <Form form={importForm} layout="vertical" initialValues={{ category: 'general' }}>
+          <Form.Item
+            label="Skill 文件"
+            required
+            extra="支持 .zip / .skill，单文件最大 20MB"
+          >
+            <Upload
+              accept=".zip,.skill"
+              maxCount={1}
+              fileList={fileList}
+              beforeUpload={() => false}
+              onChange={({ fileList: next }) => setFileList(next)}
+            >
+              <Button icon={<ImportOutlined />}>选择文件</Button>
+            </Upload>
           </Form.Item>
+
+          <Form.Item name="name" label="名称（可选）" extra="不填时将使用文件名作为 Skill 包名称">
+            <Input placeholder="如：前端测试增强包" />
+          </Form.Item>
+
           <Form.Item name="category" label="分类" rules={[{ required: true }]}>
             <Select>
               <Select.Option value="general">general（通用）</Select.Option>
@@ -335,43 +370,51 @@ export default function SkillPacks() {
               <Select.Option value="analysis">analysis（分析）</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input placeholder="简要描述此 Skill 包的能力" />
+
+          <Form.Item name="description" label="描述（可选）">
+            <Input placeholder="简要描述此 Skill 包" />
           </Form.Item>
-          <Form.Item name="content" label="内容" rules={[{ required: true, message: '请输入内容' }]}>
-            <Input.TextArea rows={8} placeholder="Skill 包内容，如 Prompt 片段、能力定义、行为规范等..." style={{ fontFamily: 'monospace' }} />
-          </Form.Item>
-          {editTarget && (
-            <Form.Item name="isActive" label="启用状态" valuePropName="checked">
-              <Switch checkedChildren="启用" unCheckedChildren="停用" />
-            </Form.Item>
-          )}
         </Form>
       </Modal>
 
       <Modal
-        title="JSON 批量导入"
-        open={importOpen}
-        onCancel={() => { setImportOpen(false); importForm.resetFields(); }}
-        onOk={handleImportJson}
+        title="编辑 Skill 包元数据"
+        open={editOpen}
+        onCancel={() => {
+          setEditOpen(false);
+          setEditTarget(null);
+          editForm.resetFields();
+        }}
+        onOk={handleSaveEdit}
         confirmLoading={saving}
-        width={640}
+        width={560}
         destroyOnClose
-        okText="导入"
+        okText="保存"
         cancelText="取消"
       >
-        <Form form={importForm} layout="vertical">
-          <Form.Item
-            name="jsonContent"
-            label="JSON 内容"
-            rules={[{ required: true, message: '请输入 JSON 内容' }]}
-            extra="支持单个对象或数组。格式: { name, description?, category?, content }"
-          >
-            <Input.TextArea
-              rows={10}
-              placeholder={'[\n  {\n    "name": "代码审查",\n    "description": "专业的代码审查能力",\n    "category": "coding",\n    "content": "你具备专业的代码审查能力..."\n  }\n]'}
-              style={{ fontFamily: 'monospace' }}
-            />
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="Skill 包名称" />
+          </Form.Item>
+
+          <Form.Item name="category" label="分类" rules={[{ required: true }]}>
+            <Select>
+              <Select.Option value="general">general（通用）</Select.Option>
+              <Select.Option value="coding">coding（编码）</Select.Option>
+              <Select.Option value="testing">testing（测试）</Select.Option>
+              <Select.Option value="design">design（设计）</Select.Option>
+              <Select.Option value="devops">devops（运维）</Select.Option>
+              <Select.Option value="writing">writing（写作）</Select.Option>
+              <Select.Option value="analysis">analysis（分析）</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="description" label="描述">
+            <Input placeholder="描述此 Skill 包用途" />
+          </Form.Item>
+
+          <Form.Item name="isActive" label="启用状态" valuePropName="checked">
+            <Switch checkedChildren="启用" unCheckedChildren="停用" />
           </Form.Item>
         </Form>
       </Modal>

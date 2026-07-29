@@ -3,7 +3,7 @@ import { parse as parseYaml } from 'yaml';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
-const projectRoot = join(import.meta.dirname, '../../../..');
+const projectRoot = join(__dirname, '../../../..');
 const dataDir = join(projectRoot, 'data');
 
 export interface Config {

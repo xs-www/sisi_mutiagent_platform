@@ -3,6 +3,7 @@ import { executeToolImplementation } from './implementations.js';
 import { createApprovalRequest, getApprovalRequest, updateApprovalStatus } from '../approval/repository.js';
 import type { ToolResult, ToolExecutionResult, ApprovalRequiredResult } from './types.js';
 import type { AgentConfig } from '../agent/types.js';
+import type { ToolExecutionContext } from './types.js';
 
 export async function executeTool(
   toolName: string,
@@ -10,6 +11,7 @@ export async function executeTool(
   agentConfig: AgentConfig,
   ticketId: string,
   workspacePath: string,
+  context?: Partial<ToolExecutionContext>,
   reason?: string
 ): Promise<ToolResult> {
   const startTime = Date.now();
@@ -57,13 +59,20 @@ export async function executeTool(
     return result;
   }
 
-  return await executeToolImplementation(toolName, params, workspacePath);
+  return await executeToolImplementation(toolName, params, workspacePath, {
+    workspacePath,
+    ticketId,
+    agentId: agentConfig.id,
+    agentName: agentConfig.name,
+    ...context,
+  });
 }
 
 export async function executeApprovedTool(
   approvalId: string,
   workspacePath: string,
-  agentConfig: AgentConfig
+  agentConfig: AgentConfig,
+  context?: Partial<ToolExecutionContext>
 ): Promise<ToolExecutionResult> {
   const approval = getApprovalRequest(approvalId);
   if (!approval) {
@@ -73,7 +82,13 @@ export async function executeApprovedTool(
     return { success: false, output: '', error: `审批未通过，当前状态: ${approval.status}` };
   }
 
-  return await executeToolImplementation(approval.toolName, JSON.parse(approval.params || '{}'), workspacePath);
+  return await executeToolImplementation(approval.toolName, JSON.parse(approval.params || '{}'), workspacePath, {
+    workspacePath,
+    ticketId: approval.ticketId,
+    agentId: agentConfig.id,
+    agentName: agentConfig.name,
+    ...context,
+  });
 }
 
 export function rejectApproval(approvalId: string, userResponse?: string): boolean {

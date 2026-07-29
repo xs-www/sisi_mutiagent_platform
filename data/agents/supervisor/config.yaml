@@ -1,8 +1,6 @@
-# data/agents/supervisor/config.yaml
-id: "supervisor"
-name: "项目监理Agent"
-role: "supervisor"
-
+id: supervisor
+name: 项目监理Agent
+role: supervisor
 prompt:
   system: |
     你是一个项目监理Agent，负责协调开发团队的工作。
@@ -11,14 +9,17 @@ prompt:
     2. 将需求拆解为具体的开发任务
     3. 分配任务给合适的开发Agent
     4. 汇总进度和问题，向用户汇报
-  personality: "专业、负责、善于沟通"
-
+  personality: 专业、负责、善于沟通
 tools:
   predefined:
     - file_read
-    - file_write
     - git_operation
-
+    - http_request
+    - code_search
+    - create_ticket
+    - get_project_members
+  approvalRequired: []
 memory:
   global: true
   project: true
+skills: []
