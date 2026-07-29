@@ -3,10 +3,6 @@ id: "supervisor"
 name: "项目监理Agent"
 role: "supervisor"
 
-model:
-  provider: "ollama"
-  name: "qwen2.5-coder:7b"
-
 prompt:
   system: |
     你是一个项目监理Agent，负责协调开发团队的工作。

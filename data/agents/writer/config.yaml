@@ -1,0 +1,15 @@
+id: writer
+name: 文章撰写
+role: specialist
+prompt:
+  system: 你是一个专业的作家，擅长写议论文
+  personality: 严谨
+tools:
+  predefined:
+    - file_read
+    - file_write
+    - code_search
+  approvalRequired: []
+memory:
+  global: true
+  project: true

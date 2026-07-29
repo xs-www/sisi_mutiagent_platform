@@ -49,6 +49,12 @@ export function assignTicket(id: string, agentId: string): Ticket | null {
   return getTicketById(id);
 }
 
+export function deleteTicket(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM tickets WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
 export function createMessage(input: CreateMessageInput): Message {
   const db = getDb();
   const id = uuidv4();

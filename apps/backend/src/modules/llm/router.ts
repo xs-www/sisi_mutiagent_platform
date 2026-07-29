@@ -1,97 +1,105 @@
 // apps/backend/src/modules/llm/router.ts
 import { chat as ollamaChat, checkOllamaStatus } from './ollama.js';
-import { chatOpenAI, chatOpenAICompatible, chatAnthropic } from './external.js';
+import { chatOpenAICompatible, chatAnthropic } from './external.js';
 import { config } from '../../config/index.js';
 import type { ChatMessage, ChatResponse } from './types.js';
-import type { AgentModelConfig } from '../agent/types.js';
+import { getActivePlatformModels } from '../platform/repository.js';
 
-export async function chatWithFallback(
-  modelConfig: AgentModelConfig,
+// 从平台模型池按优先级依次尝试，直到成功
+export async function chatWithPlatformModels(
   messages: ChatMessage[],
   options?: { temperature?: number }
 ): Promise<ChatResponse> {
-  // 尝试主模型
-  try {
-    if (modelConfig.provider === 'ollama') {
-      const status = await checkOllamaStatus();
-      if (status.running && status.modelsLoaded.includes(modelConfig.name)) {
-        return await ollamaChat(modelConfig.name, messages, options);
-      }
-      // Ollama不可用或模型未加载，尝试fallback
-      if (modelConfig.fallback) {
-        return await callExternal(modelConfig.fallback, messages, options);
-      }
-      throw new Error(`Ollama not available or model ${modelConfig.name} not loaded, no fallback configured`);
-    }
+  const models = getActivePlatformModels();
 
-    // 非ollama直接调用外部API
-    return await callExternal({
-      provider: modelConfig.provider,
-      name: modelConfig.name,
-      apiKey: modelConfig.apiKey
-    }, messages, options);
-  } catch (error: any) {
-    // 主模型失败，尝试fallback
-    if (modelConfig.fallback) {
-      console.warn(`Primary model failed (${error.message}), falling back to ${modelConfig.fallback.provider}/${modelConfig.fallback.name}`);
-      return await callExternal(modelConfig.fallback, messages, options);
-    }
-    throw error;
+  if (models.length === 0) {
+    throw new Error('平台未配置任何可用模型，请在平台设置中添加模型');
   }
+
+  let lastError: Error | null = null;
+
+  for (const model of models) {
+    try {
+      console.log(`[LLM] 尝试模型: ${model.provider}/${model.modelName} (priority=${model.priority})`);
+      const result = await callModel(model.provider, model.modelName, messages, options);
+      return result;
+    } catch (error: any) {
+      console.warn(`[LLM] 模型 ${model.provider}/${model.modelName} 调用失败: ${error.message}`);
+      lastError = error;
+      // 继续尝试下一个模型
+    }
+  }
+
+  throw new Error(`所有平台模型均调用失败。最后错误: ${lastError?.message || 'unknown'}`);
 }
 
-async function callExternal(
-  modelConfig: { provider: string; name: string; apiKey?: string },
+// 调用单个模型
+async function callModel(
+  provider: string,
+  modelName: string,
   messages: ChatMessage[],
   options?: { temperature?: number }
 ): Promise<ChatResponse> {
-  let apiKey: string;
-  let keyId: string | null = null;
+  // Ollama 特殊处理：检查可用性
+  if (provider === 'ollama') {
+    const status = await checkOllamaStatus();
+    if (status.running && status.modelsLoaded.includes(modelName)) {
+      return await ollamaChat(modelName, messages, options);
+    }
+    throw new Error(`Ollama 不可用或模型 ${modelName} 未加载`);
+  }
 
-  // 优先使用平台Key池（支持并发管理）
+  // 外部 API：从平台 Key 池获取 API Key
+  const apiKey = await resolveApiKey(provider);
+  if (!apiKey) {
+    throw new Error(`Provider "${provider}" 无可用 API Key`);
+  }
+
+  // 并发控制
+  const { selectAvailableKey, acquireKey, releaseKey } = await import('../apikeys/concurrency.js');
   const { getActiveApiKeysByProvider } = await import('../apikeys/repository.js');
-  const { selectAvailableKey, acquireKey } = await import('../apikeys/concurrency.js');
-
-  const keys = getActiveApiKeysByProvider(modelConfig.provider);
+  const keys = getActiveApiKeysByProvider(provider);
+  let keyId: string | null = null;
   if (keys.length > 0) {
-    // 平台有可用key，选择并发最低的
     keyId = selectAvailableKey(keys.map(k => ({ id: k.id, maxConcurrency: k.maxConcurrency })));
     if (keyId) {
       const keyObj = keys.find(k => k.id === keyId)!;
       acquireKey(keyId, keyObj.maxConcurrency);
-      apiKey = keyObj.apiKey;
     } else {
-      throw new Error(`All API keys for provider "${modelConfig.provider}" have reached concurrency limit`);
-    }
-  } else if (modelConfig.apiKey) {
-    // 平台无key，回退到Agent自带key
-    apiKey = modelConfig.apiKey;
-  } else {
-    // 最后回退到配置文件
-    const providerConfig = config.llm.providers[modelConfig.provider];
-    apiKey = providerConfig?.apiKey || '';
-    if (!apiKey) {
-      throw new Error(`No API key configured for provider: ${modelConfig.provider}`);
+      throw new Error(`Provider "${provider}" 的所有 Key 已达并发上限`);
     }
   }
 
   try {
-    switch (modelConfig.provider) {
+    switch (provider) {
       case 'openai':
-        return await chatOpenAI(modelConfig.name, messages, apiKey, options);
+        // openai 走 chatOpenAICompatible 统一接口
+        return await chatOpenAICompatible('openai', modelName, messages, apiKey, options);
       case 'kimi':
       case 'qwen':
       case 'deepseek':
-        return await chatOpenAICompatible(modelConfig.provider, modelConfig.name, messages, apiKey, options);
+      case 'bailian':
+        return await chatOpenAICompatible(provider, modelName, messages, apiKey, options);
       case 'anthropic':
-        return await chatAnthropic(modelConfig.name, messages, apiKey, options);
+        return await chatAnthropic(modelName, messages, apiKey, options);
       default:
-        throw new Error(`Unsupported provider: ${modelConfig.provider}`);
+        throw new Error(`不支持的 provider: ${provider}`);
     }
   } finally {
     if (keyId) {
-      const { releaseKey } = await import('../apikeys/concurrency.js');
       releaseKey(keyId);
     }
   }
+}
+
+// 解析 API Key：优先从平台 Key 池获取，兜底配置文件
+async function resolveApiKey(provider: string): Promise<string> {
+  const { getActiveApiKeysByProvider } = await import('../apikeys/repository.js');
+  const keys = getActiveApiKeysByProvider(provider);
+  if (keys.length > 0) {
+    return keys[0].apiKey;
+  }
+  // 兜底：配置文件
+  const providerConfig = config.llm.providers[provider];
+  return providerConfig?.apiKey || '';
 }

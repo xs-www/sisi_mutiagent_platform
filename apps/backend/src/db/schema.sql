@@ -106,6 +106,29 @@ CREATE TABLE IF NOT EXISTS api_keys (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 平台模型池表：统一管理平台可用的LLM模型
+CREATE TABLE IF NOT EXISTS platform_models (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Skill包表：可复用的技能包定义
+CREATE TABLE IF NOT EXISTS skill_packs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT DEFAULT 'general',
+  content TEXT NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 工具配置覆盖表
 CREATE TABLE IF NOT EXISTS tool_overrides (
   tool_name TEXT PRIMARY KEY,

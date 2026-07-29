@@ -1,16 +1,4 @@
 export type AgentRole = 'supervisor' | 'specialist';
-export type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'kimi' | 'qwen' | 'deepseek';
-
-export interface AgentModelConfig {
-  provider: LLMProvider;
-  name: string;
-  apiKey?: string;
-  fallback?: {
-    provider: LLMProvider;
-    name: string;
-    apiKey?: string;
-  };
-}
 
 export interface AgentPrompt {
   system: string;
@@ -32,10 +20,10 @@ export interface AgentConfig {
   id: string;
   name: string;
   role: AgentRole;
-  model: AgentModelConfig;
   prompt: AgentPrompt;
   tools: AgentTools;
   memory: AgentMemoryConfig;
+  skills?: string[];
 }
 
 export interface Agent {
@@ -184,5 +172,58 @@ export interface UpdateApiKeyInput {
   name?: string;
   apiKey?: string;
   maxConcurrency?: number;
+  isActive?: boolean;
+}
+
+// 平台模型池
+export type PlatformProvider = 'ollama' | 'openai' | 'anthropic' | 'kimi' | 'qwen' | 'deepseek' | 'bailian';
+
+export interface PlatformModel {
+  id: string;
+  provider: string;
+  modelName: string;
+  priority: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePlatformModelInput {
+  provider: string;
+  modelName: string;
+  priority?: number;
+}
+
+export interface UpdatePlatformModelInput {
+  provider?: string;
+  modelName?: string;
+  priority?: number;
+  isActive?: boolean;
+}
+
+// Skill 包
+export interface SkillPack {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  content: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSkillPackInput {
+  name: string;
+  description?: string;
+  category?: string;
+  content: string;
+}
+
+export interface UpdateSkillPackInput {
+  name?: string;
+  description?: string;
+  category?: string;
+  content?: string;
   isActive?: boolean;
 }

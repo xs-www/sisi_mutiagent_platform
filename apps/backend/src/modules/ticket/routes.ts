@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import {
   createTicket, getTicketById, getTicketsByProject,
-  updateTicketStatus, assignTicket,
+  updateTicketStatus, assignTicket, deleteTicket as deleteTicketFn,
   createMessage, getMessagesByTicket
 } from './repository.js';
 import type { CreateTicketInput, CreateMessageInput } from './types.js';
@@ -116,6 +116,19 @@ ticketRouter.post('/:id/messages', (req, res) => {
 
     const message = createMessage(input);
     res.status(201).json(message);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除工单
+ticketRouter.delete('/:id', (req, res) => {
+  try {
+    const success = deleteTicketFn(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    res.json({ message: 'Ticket deleted' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

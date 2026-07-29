@@ -1,6 +1,6 @@
 // apps/backend/src/modules/agent/routes.ts
 import { Router } from 'express';
-import { getAgentFromDb, getAllAgentsFromDb, loadAgentConfig, createAgentConfig, deleteAgentConfig } from './loader.js';
+import { getAgentFromDb, getAllAgentsFromDb, loadAgentConfig, createAgentConfig, deleteAgentConfig, updateAgentConfig } from './loader.js';
 import type { AgentConfig } from './types.js';
 
 export const agentRouter = Router();
@@ -10,14 +10,29 @@ agentRouter.post('/', (req, res) => {
   try {
     const body = req.body as Partial<AgentConfig>;
 
-    if (!body.id || !body.name || !body.role || !body.model || !body.prompt || !body.tools || !body.memory) {
-      return res.status(400).json({ error: 'id, name, role, model, prompt, tools, memory are required' });
+    if (!body.id || !body.name || !body.role || !body.prompt || !body.tools || !body.memory) {
+      return res.status(400).json({ error: 'id, name, role, prompt, tools, memory are required' });
     }
 
     const agent = createAgentConfig(body as AgentConfig);
     res.status(201).json(agent);
   } catch (error: any) {
     console.error('Error creating agent:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 编辑Agent
+agentRouter.put('/:id', (req, res) => {
+  try {
+    const updates = req.body as Partial<AgentConfig>;
+    const updated = updateAgentConfig(req.params.id, updates);
+    if (!updated) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    res.json(updated);
+  } catch (error: any) {
+    console.error('Error updating agent:', error);
     res.status(500).json({ error: error.message });
   }
 });

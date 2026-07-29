@@ -2,19 +2,6 @@
 
 import type { AgentRole } from '../../types/index.js';
 
-export type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'kimi' | 'qwen' | 'deepseek';
-
-export interface AgentModelConfig {
-  provider: LLMProvider;
-  name: string;
-  apiKey?: string;
-  fallback?: {
-    provider: LLMProvider;
-    name: string;
-    apiKey?: string;
-  };
-}
-
 export interface AgentPromptConfig {
   system: string;
   personality?: string;
@@ -35,10 +22,10 @@ export interface AgentConfig {
   id: string;
   name: string;
   role: AgentRole;
-  model: AgentModelConfig;
   prompt: AgentPromptConfig;
   tools: AgentToolsConfig;
   memory: AgentMemoryConfig;
+  skills?: string[];
 }
 
 export interface Agent {

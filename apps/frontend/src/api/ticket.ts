@@ -49,3 +49,7 @@ export async function sendMessage(ticketId: string, body: {
   const resp = await http.post(`/tickets/${ticketId}/messages`, body);
   return resp.data;
 }
+
+export async function deleteTicket(id: string): Promise<void> {
+  await http.delete(`/tickets/${id}`);
+}

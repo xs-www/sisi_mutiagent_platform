@@ -19,9 +19,10 @@ import {
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, EyeOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { getAgents, getAgent, deleteAgent, createAgent } from '../api/agent';
-import type { Agent, AgentConfig } from '../types';
+import { ReloadOutlined, EyeOutlined, DeleteOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
+import { getAgents, getAgent, deleteAgent, createAgent, updateAgent } from '../api/agent';
+import { getSkillPacks } from '../api/skill';
+import type { Agent, AgentConfig, SkillPack } from '../types';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -37,8 +38,10 @@ export default function Agents() {
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
   const [drawerLoading, setDrawerLoading] = useState<boolean>(false);
   const [currentAgent, setCurrentAgent] = useState<Agent | null>(null);
-  const [createModalOpen, setCreateModalOpen] = useState<boolean>(false);
-  const [creating, setCreating] = useState<boolean>(false);
+  const [modalOpen, setModalOpen] = useState<boolean>(false);
+  const [editTarget, setEditTarget] = useState<Agent | null>(null);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [skillPacks, setSkillPacks] = useState<SkillPack[]>([]);
   const [form] = Form.useForm();
 
   const loadAgents = useCallback(async () => {
@@ -53,9 +56,19 @@ export default function Agents() {
     }
   }, []);
 
+  const loadSkillPacks = useCallback(async () => {
+    try {
+      const data = await getSkillPacks();
+      setSkillPacks(data);
+    } catch (error) {
+      console.error('加载 Skill 包列表失败:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadAgents();
-  }, [loadAgents]);
+    loadSkillPacks();
+  }, [loadAgents, loadSkillPacks]);
 
   const handleViewDetail = async (id: string) => {
     setDrawerOpen(true);
@@ -86,28 +99,48 @@ export default function Agents() {
     setCurrentAgent(null);
   };
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
+    setEditTarget(null);
+    form.resetFields();
+    form.setFieldsValue({
+      role: 'specialist',
+      tools: ['file_read', 'file_write', 'code_search'],
+      globalMemory: true,
+      projectMemory: true,
+    });
+    setModalOpen(true);
+  };
+
+  const handleEdit = (record: Agent) => {
+    setEditTarget(record);
+    const cfg = record.config;
+    form.setFieldsValue({
+      id: cfg.id,
+      name: cfg.name,
+      role: cfg.role,
+      systemPrompt: cfg.prompt.system,
+      personality: cfg.prompt.personality,
+      tools: cfg.tools.predefined,
+      skills: cfg.skills || [],
+      globalMemory: cfg.memory.global,
+      projectMemory: cfg.memory.project,
+    });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      setCreating(true);
+      setSaving(true);
 
       // 构建 approvalRequired：file_delete 和 shell_execute 默认需审批
       const approvalRequired = values.tools?.filter((t: string) =>
         t === 'file_delete' || t === 'shell_execute'
       ) || [];
 
-      await createAgent({
-        id: values.id,
+      const payload = {
         name: values.name,
         role: values.role,
-        model: {
-          provider: values.modelProvider,
-          name: values.modelName,
-          fallback: values.fallbackProvider ? {
-            provider: values.fallbackProvider,
-            name: values.fallbackName,
-          } : undefined,
-        },
         prompt: {
           system: values.systemPrompt,
           personality: values.personality,
@@ -120,17 +153,26 @@ export default function Agents() {
           global: values.globalMemory ?? true,
           project: values.projectMemory ?? true,
         },
-      });
+        skills: values.skills || [],
+      };
 
-      message.success('Agent 创建成功');
-      setCreateModalOpen(false);
+      if (editTarget) {
+        await updateAgent(editTarget.id, payload);
+        message.success('Agent 更新成功');
+      } else {
+        await createAgent({ ...payload, id: values.id });
+        message.success('Agent 创建成功');
+      }
+
+      setModalOpen(false);
       form.resetFields();
+      setEditTarget(null);
       loadAgents();
     } catch (error: any) {
       if (error?.errorFields) return; // 表单校验失败
-      console.error('创建 Agent 失败:', error);
+      console.error('保存 Agent 失败:', error);
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
@@ -159,25 +201,22 @@ export default function Agents() {
       },
     },
     {
-      title: '模型',
-      key: 'model',
-      render: (_, record: Agent) => {
-        const m = record.config.model;
-        return `${m.provider} / ${m.name}`;
-      },
+      title: '工具',
+      key: 'toolCount',
+      render: (_, record: Agent) => `${record.config.tools.predefined.length} 个`,
     },
     {
-      title: '工具数量',
-      key: 'toolCount',
+      title: 'Skill 包',
+      key: 'skills',
       render: (_, record: Agent) => {
-        const count = record.config.tools.predefined.length;
-        return `${count} 个工具`;
+        const count = record.config.skills?.length || 0;
+        return count > 0 ? <Tag color="cyan">{count} 个</Tag> : <Text type="secondary">无</Text>;
       },
     },
     {
       title: '操作',
       key: 'actions',
-      width: 220,
+      width: 280,
       render: (_, record: Agent) => (
         <Space>
           <Button
@@ -185,7 +224,14 @@ export default function Agents() {
             icon={<EyeOutlined />}
             onClick={() => handleViewDetail(record.id)}
           >
-            查看详情
+            详情
+          </Button>
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          >
+            编辑
           </Button>
           <Popconfirm
             title="确认删除该 Agent?"
@@ -218,7 +264,7 @@ export default function Agents() {
           Agent 管理
         </Title>
         <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             新增 Agent
           </Button>
           <Button icon={<ReloadOutlined />} onClick={loadAgents} loading={loading}>
@@ -249,35 +295,30 @@ export default function Agents() {
             <Spin />
           </div>
         ) : currentAgent ? (
-          <AgentDetail agent={currentAgent} />
+          <AgentDetail agent={currentAgent} skillPacks={skillPacks} />
         ) : null}
       </Drawer>
 
       <Modal
-        title="新增 Agent"
-        open={createModalOpen}
-        onCancel={() => { setCreateModalOpen(false); form.resetFields(); }}
-        onOk={handleCreate}
-        confirmLoading={creating}
-        width={640}
+        title={editTarget ? '编辑 Agent' : '新增 Agent'}
+        open={modalOpen}
+        onCancel={() => { setModalOpen(false); form.resetFields(); setEditTarget(null); }}
+        onOk={handleSave}
+        confirmLoading={saving}
+        width={680}
         destroyOnClose
-        okText="创建"
+        okText={editTarget ? '保存' : '创建'}
         cancelText="取消"
       >
         <Form
           form={form}
           layout="vertical"
-          initialValues={{
-            role: 'specialist',
-            modelProvider: 'ollama',
-            tools: ['file_read', 'file_write', 'code_search'],
-            globalMemory: true,
-            projectMemory: true,
-          }}
         >
-          <Form.Item name="id" label="Agent ID" rules={[{ required: true, message: '请输入 Agent ID' }, { pattern: /^[a-zA-Z0-9_-]+$/, message: '只允许字母、数字、下划线、连字符' }]}>
-            <Input placeholder="如：frontend-developer" />
-          </Form.Item>
+          {!editTarget && (
+            <Form.Item name="id" label="Agent ID" rules={[{ required: true, message: '请输入 Agent ID' }, { pattern: /^[a-zA-Z0-9_-]+$/, message: '只允许字母、数字、下划线、连字符' }]}>
+              <Input placeholder="如：frontend-developer" />
+            </Form.Item>
+          )}
 
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="如：前端开发Agent" />
@@ -288,41 +329,6 @@ export default function Agents() {
               <Select.Option value="specialist">specialist（专家）</Select.Option>
               <Select.Option value="supervisor">supervisor（监理）</Select.Option>
             </Select>
-          </Form.Item>
-
-          <Form.Item label="模型配置">
-            <Space.Compact style={{ width: '100%' }}>
-              <Form.Item name="modelProvider" noStyle rules={[{ required: true }]}>
-                <Select style={{ width: '40%' }} placeholder="Provider">
-                  <Select.Option value="ollama">ollama</Select.Option>
-                  <Select.Option value="openai">openai</Select.Option>
-                  <Select.Option value="anthropic">anthropic</Select.Option>
-                  <Select.Option value="kimi">kimi（月之暗面）</Select.Option>
-                  <Select.Option value="qwen">qwen（通义千问）</Select.Option>
-                  <Select.Option value="deepseek">deepseek</Select.Option>
-                </Select>
-              </Form.Item>
-              <Form.Item name="modelName" noStyle rules={[{ required: true, message: '请输入模型名' }]}>
-                <Input style={{ width: '60%' }} placeholder="模型名，如 qwen2.5-coder:7b" />
-              </Form.Item>
-            </Space.Compact>
-          </Form.Item>
-
-          <Form.Item label="备用模型（可选）">
-            <Space.Compact style={{ width: '100%' }}>
-              <Form.Item name="fallbackProvider" noStyle>
-                <Select style={{ width: '40%' }} placeholder="Provider（可选）" allowClear>
-                  <Select.Option value="openai">openai</Select.Option>
-                  <Select.Option value="anthropic">anthropic</Select.Option>
-                  <Select.Option value="kimi">kimi（月之暗面）</Select.Option>
-                  <Select.Option value="qwen">qwen（通义千问）</Select.Option>
-                  <Select.Option value="deepseek">deepseek</Select.Option>
-                </Select>
-              </Form.Item>
-              <Form.Item name="fallbackName" noStyle>
-                <Input style={{ width: '60%' }} placeholder="备用模型名（可选）" />
-              </Form.Item>
-            </Space.Compact>
           </Form.Item>
 
           <Form.Item name="systemPrompt" label="System Prompt" rules={[{ required: true, message: '请输入 System Prompt' }]}>
@@ -339,6 +345,15 @@ export default function Agents() {
                 <Select.Option key={t} value={t}>{t}</Select.Option>
               ))}
             </Select>
+          </Form.Item>
+
+          <Form.Item name="skills" label="Skill 包" tooltip="引用已配置的 Skill 包，为 Agent 附加能力">
+            <Select
+              mode="multiple"
+              placeholder="选择 Skill 包"
+              allowClear
+              options={skillPacks.map(s => ({ label: `${s.name} (${s.category})`, value: s.id }))}
+            />
           </Form.Item>
 
           <Form.Item label="记忆配置">
@@ -360,7 +375,7 @@ export default function Agents() {
   );
 }
 
-function AgentDetail({ agent }: { agent: Agent }) {
+function AgentDetail({ agent, skillPacks }: { agent: Agent; skillPacks: SkillPack[] }) {
   const cfg: AgentConfig = agent.config;
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -376,20 +391,6 @@ function AgentDetail({ agent }: { agent: Agent }) {
         </Descriptions.Item>
         <Descriptions.Item label="内置">
           {agent.isBuiltIn ? '是' : '否'}
-        </Descriptions.Item>
-      </Descriptions>
-
-      <Descriptions title="模型配置" bordered column={1} size="small">
-        <Descriptions.Item label="Provider">{cfg.model.provider}</Descriptions.Item>
-        <Descriptions.Item label="Name">{cfg.model.name}</Descriptions.Item>
-        <Descriptions.Item label="Fallback">
-          {cfg.model.fallback ? (
-            <span>
-              {cfg.model.fallback.provider} / {cfg.model.fallback.name}
-            </span>
-          ) : (
-            <span style={{ color: '#999' }}>无</span>
-          )}
         </Descriptions.Item>
       </Descriptions>
 
@@ -432,10 +433,27 @@ function AgentDetail({ agent }: { agent: Agent }) {
           {cfg.tools.approvalRequired && cfg.tools.approvalRequired.length > 0 ? (
             <Space size={[4, 4]} wrap>
               {cfg.tools.approvalRequired.map((t) => (
-                <Tag key={t} color="orange">
-                  {t}
-                </Tag>
+                <Tag key={t} color="orange">{t}</Tag>
               ))}
+            </Space>
+          ) : (
+            <span style={{ color: '#999' }}>无</span>
+          )}
+        </Descriptions.Item>
+      </Descriptions>
+
+      <Descriptions title="Skill 包" bordered column={1} size="small">
+        <Descriptions.Item label="已引用">
+          {cfg.skills && cfg.skills.length > 0 ? (
+            <Space size={[4, 4]} wrap>
+              {cfg.skills.map((id) => {
+                const sp = skillPacks.find(s => s.id === id);
+                return (
+                  <Tag key={id} color="cyan">
+                    {sp ? sp.name : id}
+                  </Tag>
+                );
+              })}
             </Space>
           ) : (
             <span style={{ color: '#999' }}>无</span>
@@ -445,18 +463,10 @@ function AgentDetail({ agent }: { agent: Agent }) {
 
       <Descriptions title="记忆配置" bordered column={1} size="small">
         <Descriptions.Item label="Global Memory">
-          {cfg.memory.global ? (
-            <Tag color="green">启用</Tag>
-          ) : (
-            <Tag>未启用</Tag>
-          )}
+          {cfg.memory.global ? <Tag color="green">启用</Tag> : <Tag>未启用</Tag>}
         </Descriptions.Item>
         <Descriptions.Item label="Project Memory">
-          {cfg.memory.project ? (
-            <Tag color="green">启用</Tag>
-          ) : (
-            <Tag>未启用</Tag>
-          )}
+          {cfg.memory.project ? <Tag color="green">启用</Tag> : <Tag>未启用</Tag>}
         </Descriptions.Item>
       </Descriptions>
     </Space>

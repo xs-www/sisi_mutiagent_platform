@@ -32,6 +32,7 @@ const PROVIDER_COLOR: Record<string, string> = {
   kimi: 'magenta',
   qwen: 'geekblue',
   deepseek: 'volcano',
+  bailian: 'cyan',
 };
 
 export default function ApiKeys() {
@@ -282,6 +283,7 @@ export default function ApiKeys() {
               <Select.Option value="kimi">Kimi（月之暗面）</Select.Option>
               <Select.Option value="qwen">Qwen（通义千问）</Select.Option>
               <Select.Option value="deepseek">DeepSeek</Select.Option>
+              <Select.Option value="bailian">百炼（阿里云）</Select.Option>
             </Select>
           </Form.Item>
 

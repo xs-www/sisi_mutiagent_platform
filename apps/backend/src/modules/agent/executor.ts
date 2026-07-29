@@ -1,5 +1,5 @@
 // apps/backend/src/modules/agent/executor.ts
-import { chatWithFallback } from '../llm/router.js';
+import { chatWithPlatformModels } from '../llm/router.js';
 import { buildReActPrompt, type ReActStep } from './prompt-builder.js';
 import { parseAgentResponse } from './action-parser.js';
 import type { ParsedAction } from './action-parser.js';
@@ -71,11 +71,10 @@ export async function executeAgent(
       projectId
     );
 
-    // 调用LLM
+    // 调用LLM（平台统一模型池）
     let response: string;
     try {
-      const result = await chatWithFallback(
-        agent.config.model,
+      const result = await chatWithPlatformModels(
         chatMessages,
         { temperature: options?.temperature }
       );

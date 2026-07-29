@@ -19,14 +19,6 @@ export function loadAgentConfig(agentId: string): AgentConfig | null {
   const content = readFileSync(configPath, 'utf-8');
   const parsed = parseYaml(content);
 
-  // 处理环境变量引用
-  if (parsed.model?.apiKey?.startsWith('${ENV:')) {
-    const envVar = parsed.model.apiKey.match(/\$\{ENV:(\w+)\}/)?.[1];
-    if (envVar) {
-      parsed.model.apiKey = process.env[envVar] || '';
-    }
-  }
-
   return parsed as AgentConfig;
 }
 
@@ -153,4 +145,31 @@ export function deleteAgentConfig(agentId: string): boolean {
   db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
 
   return true;
+}
+
+export function updateAgentConfig(agentId: string, updates: Partial<AgentConfig>): Agent | null {
+  const existing = getAgentFromDb(agentId);
+  if (!existing) return null;
+
+  // 合并更新
+  const merged: AgentConfig = {
+    ...existing.config,
+    ...updates,
+    id: existing.config.id, // 不允许修改 id
+    prompt: { ...existing.config.prompt, ...updates.prompt },
+    tools: { ...existing.config.tools, ...updates.tools },
+    memory: { ...existing.config.memory, ...updates.memory },
+  };
+
+  // 写入 YAML
+  const configPath = join(agentsDir, agentId, 'config.yaml');
+  writeFileSync(configPath, stringifyYaml(merged), 'utf-8');
+
+  // 更新数据库
+  const db = getDb();
+  db.prepare(`
+    UPDATE agents SET name = ?, role = ?, updated_at = datetime('now') WHERE id = ?
+  `).run(merged.name, merged.role, agentId);
+
+  return getAgentFromDb(agentId);
 }

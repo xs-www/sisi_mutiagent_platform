@@ -1,6 +1,7 @@
 // apps/backend/src/modules/llm/routes.ts
 import { Router } from 'express';
 import { checkOllamaStatus, listModels, chat } from './ollama.js';
+import { PROVIDER_MODELS } from './external.js';
 import type { ChatMessage } from './types.js';
 
 export const llmRouter = Router();
@@ -16,7 +17,7 @@ llmRouter.get('/status', async (req, res) => {
   }
 });
 
-// 列出可用模型
+// 列出可用模型（Ollama本地模型）
 llmRouter.get('/models', async (req, res) => {
   try {
     const models = await listModels();
@@ -24,6 +25,21 @@ llmRouter.get('/models', async (req, res) => {
   } catch (error) {
     console.error('Error listing models:', error);
     res.status(500).json({ error: 'Failed to list models' });
+  }
+});
+
+// 获取各 Provider 可用模型列表
+llmRouter.get('/provider-models', (req, res) => {
+  try {
+    const provider = req.query.provider as string | undefined;
+    if (provider) {
+      const models = PROVIDER_MODELS[provider] || [];
+      return res.json({ provider, models });
+    }
+    res.json(PROVIDER_MODELS);
+  } catch (error) {
+    console.error('Error getting provider models:', error);
+    res.status(500).json({ error: 'Failed to get provider models' });
   }
 });
 

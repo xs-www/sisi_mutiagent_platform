@@ -15,16 +15,22 @@ export async function deleteAgent(id: string): Promise<void> {
   await http.delete(`/agents/${id}`);
 }
 
+export async function updateAgent(id: string, updates: Partial<{
+  name: string;
+  role: 'supervisor' | 'specialist';
+  prompt: { system: string; personality?: string };
+  tools: { predefined: string[]; approvalRequired?: string[] };
+  memory: { global: boolean; project: boolean };
+  skills: string[];
+}>): Promise<Agent> {
+  const resp = await http.put(`/agents/${id}`, updates);
+  return resp.data;
+}
+
 export async function createAgent(body: {
   id: string;
   name: string;
   role: 'supervisor' | 'specialist';
-  model: {
-    provider: string;
-    name: string;
-    apiKey?: string;
-    fallback?: { provider: string; name: string; apiKey?: string };
-  };
   prompt: { system: string; personality?: string };
   tools: { predefined: string[]; approvalRequired?: string[] };
   memory: { global: boolean; project: boolean };

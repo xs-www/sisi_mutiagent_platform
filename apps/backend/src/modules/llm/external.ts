@@ -8,6 +8,37 @@ const PROVIDER_BASE_URL: Record<string, string> = {
   kimi: 'https://api.moonshot.cn/v1/chat/completions',
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
   deepseek: 'https://api.deepseek.com/v1/chat/completions',
+  bailian: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
+};
+
+// 各供应商可用模型列表（用于前端下拉选择）
+export const PROVIDER_MODELS: Record<string, string[]> = {
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
+  anthropic: ['claude-3.5-sonnet', 'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+  kimi: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  qwen: ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen1.5-7b-chat', 'qwen1.5-14b-chat', 'qwen1.5-72b-chat'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  bailian: [
+    'qwen-turbo',
+    'qwen-plus',
+    'qwen-max',
+    'qwen1.5-7b-chat',
+    'qwen1.5-14b-chat',
+    'qwen1.5-32b-chat',
+    'qwen1.5-72b-chat',
+    'qwen2.5-7b-instruct',
+    'qwen2.5-14b-instruct',
+    'qwen2.5-32b-instruct',
+    'qwen2.5-72b-instruct',
+    'qwen3-8b-instruct',
+    'qwen3-32b-instruct',
+    'deepseek-v2',
+    'deepseek-v2.5',
+    'llama3.1-8b-instruct',
+    'llama3.1-70b-instruct',
+    'llama3-8b-instruct',
+    'llama3-70b-instruct',
+  ],
 };
 
 // 过滤 undefined/null 字段，构造干净的请求体

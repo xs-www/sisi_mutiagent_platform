@@ -18,7 +18,7 @@ import {
   message,
   Empty,
 } from 'antd';
-import { PlusOutlined, TeamOutlined, ArrowRightOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, TeamOutlined, ArrowRightOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
   getProjects,
@@ -281,6 +281,12 @@ export default function Projects() {
                     <Space
                       style={{ marginTop: 'auto', justifyContent: 'space-between', width: '100%' }}
                     >
+                      <Button
+                        icon={<InfoCircleOutlined />}
+                        onClick={() => navigate(`/projects/${project.id}`)}
+                      >
+                        详情
+                      </Button>
                       <Button
                         type="primary"
                         icon={<ArrowRightOutlined />}

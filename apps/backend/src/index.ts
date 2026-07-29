@@ -10,6 +10,8 @@ import { projectRouter } from './modules/project/index.js';
 import { toolRouter } from './modules/tools/index.js';
 import { approvalRouter } from './modules/approval/index.js';
 import { apiKeyRouter } from './modules/apikeys/index.js';
+import { platformRouter } from './modules/platform/index.js';
+import { skillRouter } from './modules/skill/index.js';
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.use('/api/projects', projectRouter);
 app.use('/api/tools', toolRouter);
 app.use('/api/approvals', approvalRouter);
 app.use('/api/api-keys', apiKeyRouter);
+app.use('/api/platform', platformRouter);
+app.use('/api/skills', skillRouter);
 
 // 初始化
 initDb();
