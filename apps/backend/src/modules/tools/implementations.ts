@@ -1,0 +1,306 @@
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { join, normalize, isAbsolute } from 'path';
+import { execSync } from 'child_process';
+import axios from 'axios';
+import type { ToolExecutionResult } from './types.js';
+
+// ========== 安全工具：路径检查 ==========
+function resolveSafePath(workspacePath: string, userPath: string): { error?: string; path?: string } {
+  // 禁止绝对路径，必须是相对路径
+  if (isAbsolute(userPath)) {
+    return { error: '不允许使用绝对路径，请使用相对于项目工作目录的路径' };
+  }
+
+  // 规范化路径，解析../
+  const normalized = normalize(userPath);
+
+  // 禁止跳出工作目录
+  if (normalized.startsWith('..')) {
+    return { error: '不允许访问项目工作目录之外的路径' };
+  }
+
+  const fullPath = join(workspacePath, normalized);
+
+  // 双重检查：最终路径必须在workspacePath下
+  const realWorkspace = normalize(workspacePath);
+  if (!fullPath.startsWith(realWorkspace + '\\') && !fullPath.startsWith(realWorkspace + '/') && fullPath !== realWorkspace) {
+    return { error: '路径超出工作目录范围，已阻止' };
+  }
+
+  return { path: fullPath };
+}
+
+// ========== 文件工具 ==========
+
+export function toolFileRead(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const userPath = params.path as string;
+  if (!userPath) return { success: false, output: '', error: '缺少必填参数: path' };
+
+  const safe = resolveSafePath(workspacePath, userPath);
+  if (safe.error) return { success: false, output: '', error: safe.error, durationMs: Date.now() - startTime };
+  if (!safe.path) return { success: false, output: '', error: '路径解析失败' };
+
+  if (!existsSync(safe.path)) {
+    return { success: false, output: '', error: `文件不存在: ${userPath}`, durationMs: Date.now() - startTime };
+  }
+
+  if (statSync(safe.path).isDirectory()) {
+    return { success: false, output: '', error: `${userPath} 是目录，不是文件`, durationMs: Date.now() - startTime };
+  }
+
+  try {
+    const content = readFileSync(safe.path, 'utf-8');
+    return { success: true, output: content, durationMs: Date.now() - startTime };
+  } catch (err: any) {
+    return { success: false, output: '', error: `读取失败: ${err.message}`, durationMs: Date.now() - startTime };
+  }
+}
+
+export function toolFileWrite(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const userPath = params.path as string;
+  const content = params.content as string;
+
+  if (!userPath) return { success: false, output: '', error: '缺少必填参数: path' };
+  if (content === undefined) return { success: false, output: '', error: '缺少必填参数: content' };
+
+  const safe = resolveSafePath(workspacePath, userPath);
+  if (safe.error) return { success: false, output: '', error: safe.error, durationMs: Date.now() - startTime };
+  if (!safe.path) return { success: false, output: '', error: '路径解析失败' };
+
+  try {
+    // 确保父目录存在
+    const dir = require('path').dirname(safe.path);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    writeFileSync(safe.path, content, 'utf-8');
+    const size = Buffer.byteLength(content, 'utf-8');
+    return { success: true, output: `文件已写入: ${userPath} (${size} bytes)`, durationMs: Date.now() - startTime };
+  } catch (err: any) {
+    return { success: false, output: '', error: `写入失败: ${err.message}`, durationMs: Date.now() - startTime };
+  }
+}
+
+export function toolFileDelete(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const userPath = params.path as string;
+  if (!userPath) return { success: false, output: '', error: '缺少必填参数: path' };
+
+  const safe = resolveSafePath(workspacePath, userPath);
+  if (safe.error) return { success: false, output: '', error: safe.error, durationMs: Date.now() - startTime };
+  if (!safe.path) return { success: false, output: '', error: '路径解析失败' };
+
+  if (!existsSync(safe.path)) {
+    return { success: false, output: '', error: `文件不存在: ${userPath}`, durationMs: Date.now() - startTime };
+  }
+
+  try {
+    unlinkSync(safe.path);
+    return { success: true, output: `文件已删除: ${userPath}`, durationMs: Date.now() - startTime };
+  } catch (err: any) {
+    return { success: false, output: '', error: `删除失败: ${err.message}`, durationMs: Date.now() - startTime };
+  }
+}
+
+// ========== Shell工具 ==========
+
+export function toolShellExecute(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const command = params.command as string;
+  const timeout = (params.timeout_ms as number) || 30000;
+
+  if (!command) return { success: false, output: '', error: '缺少必填参数: command' };
+
+  // 危险命令黑名单（防止破坏系统）
+  const dangerousCmds = /^\s*(rm\s+-rf\s+\/|format\s+|dd\s+if=|del\s+\/f\s+\/s\s+\\)/i;
+  if (dangerousCmds.test(command)) {
+    return { success: false, output: '', error: '检测到危险命令，已拒绝执行', durationMs: Date.now() - startTime };
+  }
+
+  try {
+    const output = execSync(command, {
+      cwd: workspacePath,
+      timeout,
+      encoding: 'utf-8',
+      windowsHide: true
+    });
+    return { success: true, output: output || '(命令执行成功，无输出)', durationMs: Date.now() - startTime };
+  } catch (err: any) {
+    let errOutput = err.message;
+    if (err.stdout) errOutput += `\nSTDOUT:\n${err.stdout}`;
+    if (err.stderr) errOutput += `\nSTDERR:\n${err.stderr}`;
+    return { success: false, output: '', error: errOutput, durationMs: Date.now() - startTime };
+  }
+}
+
+// ========== HTTP工具 ==========
+
+export async function toolHttpRequest(params: Record<string, any>, _workspacePath: string): Promise<ToolExecutionResult> {
+  const startTime = Date.now();
+  const url = params.url as string;
+  const method = (params.method as string) || 'GET';
+  const body = params.body as string | undefined;
+
+  if (!url) return { success: false, output: '', error: '缺少必填参数: url' };
+
+  try {
+    const response = await axios({
+      url,
+      method,
+      data: body,
+      timeout: 30000,
+      responseType: 'text',
+      // 限制响应大小为5MB，防止阻塞
+      maxContentLength: 5 * 1024 * 1024,
+      maxRedirects: 5,
+      validateStatus: () => true // 不抛HTTP错误，让Agent自己判断
+    });
+
+    const output = [
+      `HTTP ${response.status} ${response.statusText}`,
+      `Content-Type: ${response.headers['content-type'] || 'unknown'}`,
+      '',
+      String(response.data).substring(0, 10000) // 截取前10000字符
+    ].join('\n');
+
+    return { success: true, output, durationMs: Date.now() - startTime };
+  } catch (err: any) {
+    return { success: false, output: '', error: `请求失败: ${err.message}`, durationMs: Date.now() - startTime };
+  }
+}
+
+// ========== 代码搜索工具 ==========
+
+export function toolCodeSearch(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const query = params.query as string;
+  const subPath = params.path as string | undefined;
+
+  if (!query) return { success: false, output: '', error: '缺少必填参数: query' };
+
+  const searchRoot = subPath ? resolveSafePath(workspacePath, subPath) : { path: workspacePath };
+  if (searchRoot.error) return { success: false, output: '', error: searchRoot.error, durationMs: Date.now() - startTime };
+  if (!searchRoot.path) return { success: false, output: '', error: '路径解析失败' };
+
+  if (!existsSync(searchRoot.path)) {
+    return { success: false, output: '', error: '搜索路径不存在', durationMs: Date.now() - startTime };
+  }
+
+  const results: string[] = [];
+  const queryLower = query.toLowerCase();
+  let matchCount = 0;
+  const MAX_MATCHES = 50;
+
+  function walk(dir: string) {
+    if (matchCount >= MAX_MATCHES) return;
+    const entries = readdirSync(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (matchCount >= MAX_MATCHES) return;
+      // 跳过常见排除目录
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === 'build') continue;
+      // 跳过二进制文件扩展名
+      const ext = entry.name.split('.').pop()?.toLowerCase() || '';
+      const skipExts = ['png', 'jpg', 'jpeg', 'gif', 'ico', 'woff', 'woff2', 'ttf', 'eot', 'pdf', 'zip', 'rar', 'exe', 'dll', 'so'];
+      if (!entry.isDirectory() && skipExts.includes(ext)) continue;
+
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else {
+        try {
+          const content = readFileSync(full, 'utf-8');
+          const lines = content.split('\n');
+          const relative = require('path').relative(workspacePath, full);
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].toLowerCase().includes(queryLower)) {
+              results.push(`${relative}:${i + 1}: ${lines[i].substring(0, 200)}`);
+              matchCount++;
+              if (matchCount >= MAX_MATCHES) return;
+            }
+          }
+        } catch {
+          // 跳过无法读取的文件
+        }
+      }
+    }
+  }
+
+  walk(searchRoot.path);
+
+  if (results.length === 0) {
+    return { success: true, output: `未找到匹配 "${query}" 的结果`, durationMs: Date.now() - startTime };
+  }
+
+  const output = [
+    `找到 ${matchCount} 处匹配（最多显示 ${MAX_MATCHES} 条）:`,
+    '',
+    ...results
+  ].join('\n');
+
+  return { success: true, output, durationMs: Date.now() - startTime };
+}
+
+// ========== Git工具 ==========
+
+export function toolGitOperation(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const command = params.command as string;
+  const args = (params.args as string[] | undefined) || [];
+
+  if (!command) return { success: false, output: '', error: '缺少必填参数: command' };
+
+  // 安全Git命令白名单
+  const safeCommands = ['status', 'log', 'add', 'diff', 'branch', 'tag', 'show', 'fetch', 'remote', 'config', 'rev-parse'];
+  const commandLower = command.toLowerCase();
+  if (!safeCommands.includes(commandLower) && !commandLower.startsWith('checkout')) {
+    // commit, push, pull 需要审批，此处已通过审批流程到达实现层，放行但警告
+    if (['commit', 'push', 'pull', 'reset'].includes(commandLower)) {
+      // 允许执行
+    } else {
+      return { success: false, output: '', error: `Git命令 "${command}" 不在白名单中`, durationMs: Date.now() - startTime };
+    }
+  }
+
+  try {
+    // 检查是否是Git仓库
+    if (!existsSync(join(workspacePath, '.git'))) {
+      return { success: false, output: '', error: '项目目录不是Git仓库', durationMs: Date.now() - startTime };
+    }
+
+    const cmdArgs = [command, ...args].filter(Boolean);
+    const output = execSync(`git ${cmdArgs.join(' ')}`, {
+      cwd: workspacePath,
+      timeout: 60000,
+      encoding: 'utf-8',
+      windowsHide: true
+    });
+    return { success: true, output: output || '(无输出)', durationMs: Date.now() - startTime };
+  } catch (err: any) {
+    const errOutput = err.stderr ? err.stderr.toString() : err.message;
+    return { success: false, output: '', error: errOutput, durationMs: Date.now() - startTime };
+  }
+}
+
+// ========== 工具分发器 ==========
+
+export async function executeToolImplementation(
+  toolName: string,
+  params: Record<string, any>,
+  workspacePath: string
+): Promise<ToolExecutionResult> {
+  switch (toolName) {
+    case 'file_read': return toolFileRead(params, workspacePath);
+    case 'file_write': return toolFileWrite(params, workspacePath);
+    case 'file_delete': return toolFileDelete(params, workspacePath);
+    case 'shell_execute': return toolShellExecute(params, workspacePath);
+    case 'http_request': return await toolHttpRequest(params, workspacePath);
+    case 'code_search': return toolCodeSearch(params, workspacePath);
+    case 'git_operation': return toolGitOperation(params, workspacePath);
+    default:
+      return { success: false, output: '', error: `未知工具: ${toolName}` };
+  }
+}
