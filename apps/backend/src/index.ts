@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config/index.js';
 import { initDb, closeDb } from './db/index.js';
-import { syncAgentsToDb } from './modules/agent/loader.js';
+import { syncAgentsToDb, agentRouter } from './modules/agent/index.js';
 
 const app = express();
 
@@ -13,6 +13,9 @@ app.use(express.json());
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// 注册路由
+app.use('/api/agents', agentRouter);
 
 // 初始化
 initDb();
