@@ -1,6 +1,6 @@
 // apps/backend/src/modules/agent/loader.ts
-import { parse as parseYaml } from 'yaml';
-import { readFileSync, existsSync, readdirSync } from 'fs';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { config } from '../../config/index.js';
 import type { AgentConfig, Agent } from './types.js';
@@ -112,4 +112,45 @@ export function getAllAgentsFromDb(): Agent[] {
       updatedAt: new Date(row.updated_at)
     };
   }).filter(agent => agent.config);
+}
+
+export function createAgentConfig(agentConfig: AgentConfig): Agent {
+  const agentDir = join(agentsDir, agentConfig.id);
+  if (existsSync(agentDir)) {
+    throw new Error(`Agent "${agentConfig.id}" already exists`);
+  }
+
+  mkdirSync(agentDir, { recursive: true });
+  const configPath = join(agentDir, 'config.yaml');
+  writeFileSync(configPath, stringifyYaml(agentConfig), 'utf-8');
+
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO agents (id, name, role, config_path, created_at, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+  `).run(agentConfig.id, agentConfig.name, agentConfig.role, configPath);
+
+  return {
+    id: agentConfig.id,
+    name: agentConfig.name,
+    role: agentConfig.role,
+    configPath,
+    config: agentConfig,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+}
+
+export function deleteAgentConfig(agentId: string): boolean {
+  const agentDir = join(agentsDir, agentId);
+  if (!existsSync(agentDir)) {
+    return false;
+  }
+
+  rmSync(agentDir, { recursive: true, force: true });
+
+  const db = getDb();
+  db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
+
+  return true;
 }

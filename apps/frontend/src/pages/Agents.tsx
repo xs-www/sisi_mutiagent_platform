@@ -11,13 +11,25 @@ import {
   Spin,
   message,
   Empty,
+  Modal,
+  Form,
+  Input,
+  Select,
+  Switch,
+  Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
-import { getAgents, getAgent, deleteAgent } from '../api/agent';
+import { ReloadOutlined, EyeOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { getAgents, getAgent, deleteAgent, createAgent } from '../api/agent';
 import type { Agent, AgentConfig } from '../types';
 
-const { Title, Paragraph } = Typography;
+const { Title, Paragraph, Text } = Typography;
+
+// 全部可用工具
+const ALL_TOOLS = [
+  'file_read', 'file_write', 'file_delete',
+  'shell_execute', 'http_request', 'code_search', 'git_operation',
+];
 
 export default function Agents() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -25,6 +37,9 @@ export default function Agents() {
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
   const [drawerLoading, setDrawerLoading] = useState<boolean>(false);
   const [currentAgent, setCurrentAgent] = useState<Agent | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState<boolean>(false);
+  const [creating, setCreating] = useState<boolean>(false);
+  const [form] = Form.useForm();
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -69,6 +84,54 @@ export default function Agents() {
   const handleDrawerClose = () => {
     setDrawerOpen(false);
     setCurrentAgent(null);
+  };
+
+  const handleCreate = async () => {
+    try {
+      const values = await form.validateFields();
+      setCreating(true);
+
+      // 构建 approvalRequired：file_delete 和 shell_execute 默认需审批
+      const approvalRequired = values.tools?.filter((t: string) =>
+        t === 'file_delete' || t === 'shell_execute'
+      ) || [];
+
+      await createAgent({
+        id: values.id,
+        name: values.name,
+        role: values.role,
+        model: {
+          provider: values.modelProvider,
+          name: values.modelName,
+          fallback: values.fallbackProvider ? {
+            provider: values.fallbackProvider,
+            name: values.fallbackName,
+          } : undefined,
+        },
+        prompt: {
+          system: values.systemPrompt,
+          personality: values.personality,
+        },
+        tools: {
+          predefined: values.tools || [],
+          approvalRequired,
+        },
+        memory: {
+          global: values.globalMemory ?? true,
+          project: values.projectMemory ?? true,
+        },
+      });
+
+      message.success('Agent 创建成功');
+      setCreateModalOpen(false);
+      form.resetFields();
+      loadAgents();
+    } catch (error: any) {
+      if (error?.errorFields) return; // 表单校验失败
+      console.error('创建 Agent 失败:', error);
+    } finally {
+      setCreating(false);
+    }
   };
 
   const columns: ColumnsType<Agent> = [
@@ -154,9 +217,14 @@ export default function Agents() {
         <Title level={3} style={{ margin: 0 }}>
           Agent 管理
         </Title>
-        <Button icon={<ReloadOutlined />} onClick={loadAgents} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+            新增 Agent
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={loadAgents} loading={loading}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       <Table<Agent>
@@ -184,6 +252,104 @@ export default function Agents() {
           <AgentDetail agent={currentAgent} />
         ) : null}
       </Drawer>
+
+      <Modal
+        title="新增 Agent"
+        open={createModalOpen}
+        onCancel={() => { setCreateModalOpen(false); form.resetFields(); }}
+        onOk={handleCreate}
+        confirmLoading={creating}
+        width={640}
+        destroyOnClose
+        okText="创建"
+        cancelText="取消"
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{
+            role: 'specialist',
+            modelProvider: 'ollama',
+            tools: ['file_read', 'file_write', 'code_search'],
+            globalMemory: true,
+            projectMemory: true,
+          }}
+        >
+          <Form.Item name="id" label="Agent ID" rules={[{ required: true, message: '请输入 Agent ID' }, { pattern: /^[a-zA-Z0-9_-]+$/, message: '只允许字母、数字、下划线、连字符' }]}>
+            <Input placeholder="如：frontend-developer" />
+          </Form.Item>
+
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="如：前端开发Agent" />
+          </Form.Item>
+
+          <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+            <Select>
+              <Select.Option value="specialist">specialist（专家）</Select.Option>
+              <Select.Option value="supervisor">supervisor（监理）</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item label="模型配置">
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item name="modelProvider" noStyle rules={[{ required: true }]}>
+                <Select style={{ width: '40%' }} placeholder="Provider">
+                  <Select.Option value="ollama">ollama</Select.Option>
+                  <Select.Option value="openai">openai</Select.Option>
+                  <Select.Option value="anthropic">anthropic</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item name="modelName" noStyle rules={[{ required: true, message: '请输入模型名' }]}>
+                <Input style={{ width: '60%' }} placeholder="模型名，如 qwen2.5-coder:7b" />
+              </Form.Item>
+            </Space.Compact>
+          </Form.Item>
+
+          <Form.Item label="备用模型（可选）">
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item name="fallbackProvider" noStyle>
+                <Select style={{ width: '40%' }} placeholder="Provider（可选）" allowClear>
+                  <Select.Option value="openai">openai</Select.Option>
+                  <Select.Option value="anthropic">anthropic</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item name="fallbackName" noStyle>
+                <Input style={{ width: '60%' }} placeholder="备用模型名（可选）" />
+              </Form.Item>
+            </Space.Compact>
+          </Form.Item>
+
+          <Form.Item name="systemPrompt" label="System Prompt" rules={[{ required: true, message: '请输入 System Prompt' }]}>
+            <Input.TextArea rows={4} placeholder="如：你是一个专业的前端开发工程师..." />
+          </Form.Item>
+
+          <Form.Item name="personality" label="性格特征（可选）">
+            <Input placeholder="如：专业、严谨、注重代码质量" />
+          </Form.Item>
+
+          <Form.Item name="tools" label="可用工具">
+            <Select mode="multiple" placeholder="选择工具">
+              {ALL_TOOLS.map(t => (
+                <Select.Option key={t} value={t}>{t}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item label="记忆配置">
+            <Space>
+              <Form.Item name="globalMemory" valuePropName="checked" noStyle>
+                <Switch checkedChildren="全局记忆" unCheckedChildren="全局记忆" />
+              </Form.Item>
+              <Form.Item name="projectMemory" valuePropName="checked" noStyle>
+                <Switch checkedChildren="项目记忆" unCheckedChildren="项目记忆" />
+              </Form.Item>
+            </Space>
+            <div style={{ marginTop: 4 }}>
+              <Text type="secondary">file_delete 和 shell_execute 默认需要审批</Text>
+            </div>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

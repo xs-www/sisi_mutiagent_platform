@@ -1,8 +1,40 @@
 // apps/backend/src/modules/agent/routes.ts
 import { Router } from 'express';
-import { getAgentFromDb, getAllAgentsFromDb, loadAgentConfig } from './loader.js';
+import { getAgentFromDb, getAllAgentsFromDb, loadAgentConfig, createAgentConfig, deleteAgentConfig } from './loader.js';
+import type { AgentConfig } from './types.js';
 
 export const agentRouter = Router();
+
+// 创建Agent
+agentRouter.post('/', (req, res) => {
+  try {
+    const body = req.body as Partial<AgentConfig>;
+
+    if (!body.id || !body.name || !body.role || !body.model || !body.prompt || !body.tools || !body.memory) {
+      return res.status(400).json({ error: 'id, name, role, model, prompt, tools, memory are required' });
+    }
+
+    const agent = createAgentConfig(body as AgentConfig);
+    res.status(201).json(agent);
+  } catch (error: any) {
+    console.error('Error creating agent:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除Agent
+agentRouter.delete('/:id', (req, res) => {
+  try {
+    const success = deleteAgentConfig(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    res.json({ message: 'Agent deleted' });
+  } catch (error: any) {
+    console.error('Error deleting agent:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // 获取所有Agent
 agentRouter.get('/', (req, res) => {
