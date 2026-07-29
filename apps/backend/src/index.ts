@@ -5,6 +5,7 @@ import { config } from './config/index.js';
 import { initDb, closeDb } from './db/index.js';
 import { syncAgentsToDb, agentRouter } from './modules/agent/index.js';
 import { llmRouter } from './modules/llm/index.js';
+import { ticketRouter } from './modules/ticket/index.js';
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.get('/health', (req, res) => {
 // 注册路由
 app.use('/api/agents', agentRouter);
 app.use('/api/llm', llmRouter);
+app.use('/api/tickets', ticketRouter);
 
 // 初始化
 initDb();
