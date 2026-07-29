@@ -48,31 +48,30 @@ async function callExternal(
   let apiKey: string;
   let keyId: string | null = null;
 
-  if (modelConfig.apiKey) {
-    // Agent自带key
-    apiKey = modelConfig.apiKey;
-  } else {
-    // 从DB获取平台key
-    const { getActiveApiKeysByProvider } = await import('../apikeys/repository.js');
-    const { selectAvailableKey, acquireKey } = await import('../apikeys/concurrency.js');
+  // 优先使用平台Key池（支持并发管理）
+  const { getActiveApiKeysByProvider } = await import('../apikeys/repository.js');
+  const { selectAvailableKey, acquireKey } = await import('../apikeys/concurrency.js');
 
-    const keys = getActiveApiKeysByProvider(modelConfig.provider);
-    if (keys.length === 0) {
-      // 回退到配置文件
-      const providerConfig = config.llm.providers[modelConfig.provider];
-      apiKey = providerConfig?.apiKey || '';
-      if (!apiKey) {
-        throw new Error(`No API key configured for provider: ${modelConfig.provider}`);
-      }
-    } else {
-      // 选择可用key
-      keyId = selectAvailableKey(keys.map(k => ({ id: k.id, maxConcurrency: k.maxConcurrency })));
-      if (!keyId) {
-        throw new Error(`All API keys for provider "${modelConfig.provider}" have reached concurrency limit`);
-      }
+  const keys = getActiveApiKeysByProvider(modelConfig.provider);
+  if (keys.length > 0) {
+    // 平台有可用key，选择并发最低的
+    keyId = selectAvailableKey(keys.map(k => ({ id: k.id, maxConcurrency: k.maxConcurrency })));
+    if (keyId) {
       const keyObj = keys.find(k => k.id === keyId)!;
       acquireKey(keyId, keyObj.maxConcurrency);
       apiKey = keyObj.apiKey;
+    } else {
+      throw new Error(`All API keys for provider "${modelConfig.provider}" have reached concurrency limit`);
+    }
+  } else if (modelConfig.apiKey) {
+    // 平台无key，回退到Agent自带key
+    apiKey = modelConfig.apiKey;
+  } else {
+    // 最后回退到配置文件
+    const providerConfig = config.llm.providers[modelConfig.provider];
+    apiKey = providerConfig?.apiKey || '';
+    if (!apiKey) {
+      throw new Error(`No API key configured for provider: ${modelConfig.provider}`);
     }
   }
 
