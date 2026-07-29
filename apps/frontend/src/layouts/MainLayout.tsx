@@ -7,6 +7,8 @@ import {
   OrderedListOutlined,
   ToolOutlined,
   SafetyOutlined,
+  SettingOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 
 const { Header, Sider, Content } = Layout;
@@ -17,6 +19,8 @@ const menuItems = [
   { key: '/projects', icon: <FolderOpenOutlined />, label: <Link to="/projects">项目管理</Link> },
   { key: '/tickets', icon: <OrderedListOutlined />, label: <Link to="/tickets">工单看板</Link> },
   { key: '/tools', icon: <ToolOutlined />, label: <Link to="/tools">工具调试</Link> },
+  { key: '/tool-config', icon: <SettingOutlined />, label: <Link to="/tool-config">工具配置</Link> },
+  { key: '/api-keys', icon: <KeyOutlined />, label: <Link to="/api-keys">API Key 管理</Link> },
   { key: '/approvals', icon: <SafetyOutlined />, label: <Link to="/approvals">审批中心</Link> },
 ];
 

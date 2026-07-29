@@ -40,3 +40,11 @@ export async function executeApprovedTool(body: {
   const resp = await http.post('/tools/execute-approved', body);
   return resp.data;
 }
+
+export async function updateToolConfig(
+  toolName: string,
+  body: { approvalRequired?: boolean }
+): Promise<ToolDefinition> {
+  const resp = await http.patch(`/tools/definitions/${toolName}`, body);
+  return resp.data;
+}

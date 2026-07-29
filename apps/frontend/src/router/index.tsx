@@ -5,6 +5,8 @@ import Projects from '../pages/Projects';
 import Tickets from '../pages/Tickets';
 import TicketDetail from '../pages/TicketDetail';
 import Tools from '../pages/Tools';
+import ToolConfig from '../pages/ToolConfig';
+import ApiKeys from '../pages/ApiKeys';
 import Approvals from '../pages/Approvals';
 import NotFound from '../pages/NotFound';
 import MainLayout from '../layouts/MainLayout';
@@ -20,6 +22,8 @@ export const router = createBrowserRouter([
       { path: 'tickets', element: <Tickets /> },
       { path: 'tickets/:id', element: <TicketDetail /> },
       { path: 'tools', element: <Tools /> },
+      { path: 'tool-config', element: <ToolConfig /> },
+      { path: 'api-keys', element: <ApiKeys /> },
       { path: 'approvals', element: <Approvals /> },
       { path: '*', element: <Navigate to="/404" replace /> },
     ],
