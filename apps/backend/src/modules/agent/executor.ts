@@ -172,9 +172,43 @@ async function executeAction(
 ): Promise<string> {
   switch (action.type) {
     case 'tool_call':
-      // Phase 2: 仅记录工具调用，实际执行在Phase 4实现
-      const paramsStr = JSON.stringify(action.toolParams || {});
-      return `工具 ${action.toolName} 调用已记录（参数: ${paramsStr}）。工具执行功能将在Phase 4实现。`;
+      const toolName = action.toolName || '';
+      const toolParams = action.toolParams || {};
+      try {
+        let workspacePath = '';
+        if (projectId) {
+          const { getProjectById } = await import('../project/repository.js');
+          const proj = getProjectById(projectId);
+          if (proj) workspacePath = proj.workspacePath;
+        }
+        if (!workspacePath) {
+          workspacePath = require('path').join(process.cwd(), 'temp_workspace');
+          require('fs').mkdirSync(workspacePath, { recursive: true });
+        }
+
+        const { executeTool } = await import('../tools/executor.js');
+        const { isApprovalRequired } = await import('../tools/types.js');
+
+        const toolResult = await executeTool(
+          toolName,
+          toolParams,
+          agent.config,
+          ticketId,
+          workspacePath
+        );
+
+        if (isApprovalRequired(toolResult)) {
+          return `工具 "${toolName}" 需要用户审批，请在审批中心处理。审批ID: ${toolResult.approvalId}。等待用户处理后可继续执行。`;
+        }
+
+        if (toolResult.success) {
+          return `[工具 ${toolName} 执行成功]` + '\n' + toolResult.output;
+        } else {
+          return `[工具 ${toolName} 执行失败]` + '\n' + (toolResult.error || '未知错误');
+        }
+      } catch (toolErr: any) {
+        return `工具执行异常: ${toolErr.message}`;
+      }
 
     case 'message':
       // 记录消息到当前工单
