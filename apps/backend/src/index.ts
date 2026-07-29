@@ -7,6 +7,8 @@ import { syncAgentsToDb, agentRouter } from './modules/agent/index.js';
 import { llmRouter } from './modules/llm/index.js';
 import { ticketRouter } from './modules/ticket/index.js';
 import { projectRouter } from './modules/project/index.js';
+import { toolRouter } from './modules/tools/index.js';
+import { approvalRouter } from './modules/approval/index.js';
 
 const app = express();
 
@@ -22,6 +24,8 @@ app.use('/api/agents', agentRouter);
 app.use('/api/llm', llmRouter);
 app.use('/api/tickets', ticketRouter);
 app.use('/api/projects', projectRouter);
+app.use('/api/tools', toolRouter);
+app.use('/api/approvals', approvalRouter);
 
 // 初始化
 initDb();
