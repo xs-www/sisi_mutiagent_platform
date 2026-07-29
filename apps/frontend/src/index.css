@@ -15,6 +15,13 @@ html, body, #root {
   min-height: 100vh;
 }
 
+.ant-table-row-striped:nth-child(even) > td {
+  background: #fafafa;
+}
+.ant-table-row-striped:nth-child(even):hover > td {
+  background: #f0f0f0;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
