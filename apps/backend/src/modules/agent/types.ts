@@ -2,12 +2,14 @@
 
 import type { AgentRole } from '../../types/index.js';
 
+export type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'kimi' | 'qwen' | 'deepseek';
+
 export interface AgentModelConfig {
-  provider: 'ollama' | 'openai' | 'anthropic';
+  provider: LLMProvider;
   name: string;
   apiKey?: string;
   fallback?: {
-    provider: 'ollama' | 'openai' | 'anthropic';
+    provider: LLMProvider;
     name: string;
     apiKey?: string;
   };

@@ -1,5 +1,5 @@
 export type AgentRole = 'supervisor' | 'specialist';
-export type LLMProvider = 'ollama' | 'openai' | 'anthropic';
+export type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'kimi' | 'qwen' | 'deepseek';
 
 export interface AgentModelConfig {
   provider: LLMProvider;

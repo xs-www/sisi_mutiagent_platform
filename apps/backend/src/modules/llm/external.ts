@@ -2,13 +2,24 @@
 import axios from 'axios';
 import type { ChatMessage, ChatResponse } from './types.js';
 
-export async function chatOpenAI(
+// 各供应商 API Base URL
+const PROVIDER_BASE_URL: Record<string, string> = {
+  openai: 'https://api.openai.com/v1/chat/completions',
+  kimi: 'https://api.moonshot.cn/v1/chat/completions',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+  deepseek: 'https://api.deepseek.com/v1/chat/completions',
+};
+
+// 通用 OpenAI 兼容接口调用（openai/kimi/qwen/deepseek 共用）
+export async function chatOpenAICompatible(
+  provider: string,
   model: string,
   messages: ChatMessage[],
   apiKey: string,
   options?: { temperature?: number }
 ): Promise<ChatResponse> {
-  const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+  const baseUrl = PROVIDER_BASE_URL[provider] || PROVIDER_BASE_URL.openai;
+  const response = await axios.post(baseUrl, {
     model,
     messages,
     temperature: options?.temperature
@@ -27,6 +38,16 @@ export async function chatOpenAI(
     prompt_eval_count: response.data.usage?.prompt_tokens,
     eval_count: response.data.usage?.completion_tokens
   };
+}
+
+// 保留原 chatOpenAI 作为 openai 的别名
+export async function chatOpenAI(
+  model: string,
+  messages: ChatMessage[],
+  apiKey: string,
+  options?: { temperature?: number }
+): Promise<ChatResponse> {
+  return chatOpenAICompatible('openai', model, messages, apiKey, options);
 }
 
 export async function chatAnthropic(

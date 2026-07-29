@@ -29,6 +29,9 @@ const PROVIDER_COLOR: Record<string, string> = {
   openai: 'green',
   anthropic: 'purple',
   ollama: 'blue',
+  kimi: 'magenta',
+  qwen: 'geekblue',
+  deepseek: 'volcano',
 };
 
 export default function ApiKeys() {
@@ -276,6 +279,9 @@ export default function ApiKeys() {
               <Select.Option value="openai">OpenAI</Select.Option>
               <Select.Option value="anthropic">Anthropic</Select.Option>
               <Select.Option value="ollama">Ollama（本地）</Select.Option>
+              <Select.Option value="kimi">Kimi（月之暗面）</Select.Option>
+              <Select.Option value="qwen">Qwen（通义千问）</Select.Option>
+              <Select.Option value="deepseek">DeepSeek</Select.Option>
             </Select>
           </Form.Item>
 

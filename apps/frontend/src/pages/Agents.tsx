@@ -297,6 +297,9 @@ export default function Agents() {
                   <Select.Option value="ollama">ollama</Select.Option>
                   <Select.Option value="openai">openai</Select.Option>
                   <Select.Option value="anthropic">anthropic</Select.Option>
+                  <Select.Option value="kimi">kimi（月之暗面）</Select.Option>
+                  <Select.Option value="qwen">qwen（通义千问）</Select.Option>
+                  <Select.Option value="deepseek">deepseek</Select.Option>
                 </Select>
               </Form.Item>
               <Form.Item name="modelName" noStyle rules={[{ required: true, message: '请输入模型名' }]}>
@@ -311,6 +314,9 @@ export default function Agents() {
                 <Select style={{ width: '40%' }} placeholder="Provider（可选）" allowClear>
                   <Select.Option value="openai">openai</Select.Option>
                   <Select.Option value="anthropic">anthropic</Select.Option>
+                  <Select.Option value="kimi">kimi（月之暗面）</Select.Option>
+                  <Select.Option value="qwen">qwen（通义千问）</Select.Option>
+                  <Select.Option value="deepseek">deepseek</Select.Option>
                 </Select>
               </Form.Item>
               <Form.Item name="fallbackName" noStyle>

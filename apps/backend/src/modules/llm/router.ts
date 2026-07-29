@@ -1,6 +1,6 @@
 // apps/backend/src/modules/llm/router.ts
 import { chat as ollamaChat, checkOllamaStatus } from './ollama.js';
-import { chatOpenAI, chatAnthropic } from './external.js';
+import { chatOpenAI, chatOpenAICompatible, chatAnthropic } from './external.js';
 import { config } from '../../config/index.js';
 import type { ChatMessage, ChatResponse } from './types.js';
 import type { AgentModelConfig } from '../agent/types.js';
@@ -80,6 +80,10 @@ async function callExternal(
     switch (modelConfig.provider) {
       case 'openai':
         return await chatOpenAI(modelConfig.name, messages, apiKey, options);
+      case 'kimi':
+      case 'qwen':
+      case 'deepseek':
+        return await chatOpenAICompatible(modelConfig.provider, modelConfig.name, messages, apiKey, options);
       case 'anthropic':
         return await chatAnthropic(modelConfig.name, messages, apiKey, options);
       default:
