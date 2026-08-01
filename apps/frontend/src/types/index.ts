@@ -16,14 +16,24 @@ export interface AgentMemoryConfig {
   project: boolean;
 }
 
+export interface AgentInstructions {
+  goal?: string;
+  constraints?: string;
+  methods?: string;
+  outputFormat?: string;
+  refusalStrategy?: string;
+}
+
 export interface AgentConfig {
   id: string;
   name: string;
+  description?: string;
   role: AgentRole;
   prompt: AgentPrompt;
   tools: AgentTools;
   memory: AgentMemoryConfig;
   skills?: string[];
+  instructions?: AgentInstructions;
 }
 
 export interface Agent {
@@ -55,7 +65,7 @@ export interface ProjectMember {
 
 export type TicketType = 'task' | 'bug' | 'discussion' | 'decision';
 export type TicketPriority = 'high' | 'medium' | 'low';
-export type TicketStatus = 'pending' | 'in_progress' | 'reviewing' | 'completed';
+export type TicketStatus = 'pending' | 'in_progress' | 'reviewing' | 'completed' | 'failed' | 'blocked';
 export type MessageSenderType = 'user' | 'agent' | 'system';
 export type MessageType = 'text' | 'thought' | 'action' | 'observation';
 
@@ -84,6 +94,83 @@ export interface Message {
   messageType: MessageType;
   createdAt: string;
 }
+
+// ===== Agent 执行事件（SSE 流式，镜像后端 events.ts）=====
+export type AgentEventType =
+  | 'start'
+  | 'iteration_start'
+  | 'thought'
+  | 'action'
+  | 'observation'
+  | 'message'
+  | 'ticket_status'
+  | 'child_dispatched'
+  | 'complete'
+  | 'error';
+
+export interface AgentEventBase {
+  type: AgentEventType;
+  timestamp: string;
+  /** 当事件来自子工单执行（同步串行透传）时，标识子工单，前端据此区分渲染 */
+  childTicketId?: string;
+  childTicketTitle?: string;
+}
+
+export interface StartEvent extends AgentEventBase {
+  type: 'start';
+  agentId: string;
+  agentName: string;
+}
+
+export interface IterationStartEvent extends AgentEventBase {
+  type: 'iteration_start';
+  iteration: number;
+}
+
+export interface StepEvent extends AgentEventBase {
+  type: 'thought' | 'action' | 'observation' | 'message';
+  iteration: number;
+  messageId: string;
+  content: string;
+  createdAt: string;
+  senderType?: 'agent' | 'system';
+}
+
+export interface TicketStatusEvent extends AgentEventBase {
+  type: 'ticket_status';
+  status: TicketStatus;
+  reason?: string;
+}
+
+export interface ChildDispatchedEvent extends AgentEventBase {
+  type: 'child_dispatched';
+  childTicketId: string;
+  childTicketTitle: string;
+  assigneeId: string;
+  assigneeName?: string;
+}
+
+export interface CompleteEvent extends AgentEventBase {
+  type: 'complete';
+  iterations: number;
+  completed: boolean;
+  finalActionType?: string;
+}
+
+export interface ErrorEvent extends AgentEventBase {
+  type: 'error';
+  error: string;
+  iterations: number;
+}
+
+export type AgentEvent =
+  | StartEvent
+  | IterationStartEvent
+  | StepEvent
+  | TicketStatusEvent
+  | ChildDispatchedEvent
+  | CompleteEvent
+  | ErrorEvent;
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 

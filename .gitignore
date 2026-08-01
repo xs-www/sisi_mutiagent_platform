@@ -43,3 +43,5 @@ data/*.db-shm
 
 #
 *.zip
+
+data/projects/

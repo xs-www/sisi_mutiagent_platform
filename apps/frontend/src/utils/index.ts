@@ -13,6 +13,8 @@ export const TICKET_STATUS_LABEL: Record<string, string> = {
   in_progress: '进行中',
   reviewing: '待审核',
   completed: '已完成',
+  failed: '失败',
+  blocked: '阻塞',
 };
 
 // 工单状态颜色
@@ -21,6 +23,8 @@ export const TICKET_STATUS_COLOR: Record<string, string> = {
   in_progress: 'processing',
   reviewing: 'warning',
   completed: 'success',
+  failed: 'error',
+  blocked: 'warning',
 };
 
 // 工单优先级标签

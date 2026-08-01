@@ -29,6 +29,11 @@ export async function deleteProject(id: string): Promise<void> {
   await http.delete(`/projects/${id}`);
 }
 
+// 在系统资源管理器中打开项目目录（target='project'）或工作空间（target='workspace'）
+export async function openProjectFolder(projectId: string, target: 'project' | 'workspace'): Promise<void> {
+  await http.post(`/projects/${projectId}/open-folder`, { target });
+}
+
 export async function getProjectMembers(projectId: string): Promise<ProjectMember[]> {
   const resp = await http.get(`/projects/${projectId}/members`);
   return resp.data;

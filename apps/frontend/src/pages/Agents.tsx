@@ -19,8 +19,8 @@ import {
   Tooltip,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, EyeOutlined, DeleteOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons';
-import { getAgents, getAgent, deleteAgent, createAgent, updateAgent } from '../api/agent';
+import { ReloadOutlined, EyeOutlined, DeleteOutlined, PlusOutlined, EditOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { getAgents, getAgent, deleteAgent, createAgent, updateAgent, generateAgent } from '../api/agent';
 import { getSkillPacks } from '../api/skill';
 import { getToolDefinitions } from '../api/tools';
 import type { Agent, AgentConfig, SkillPack, ToolDefinition } from '../types';
@@ -38,6 +38,8 @@ export default function Agents() {
   const [saving, setSaving] = useState<boolean>(false);
   const [skillPacks, setSkillPacks] = useState<SkillPack[]>([]);
   const [toolDefinitions, setToolDefinitions] = useState<ToolDefinition[]>([]);
+  const [generating, setGenerating] = useState<boolean>(false);
+  const [genDescription, setGenDescription] = useState<string>('');
   const [form] = Form.useForm();
 
   const loadAgents = useCallback(async () => {
@@ -107,6 +109,7 @@ export default function Agents() {
 
   const handleCreate = () => {
     setEditTarget(null);
+    setGenDescription('');
     form.resetFields();
     form.setFieldsValue({
       role: 'specialist',
@@ -117,12 +120,45 @@ export default function Agents() {
     setModalOpen(true);
   };
 
+  const handleGenerate = async () => {
+    if (!genDescription.trim()) {
+      message.warning('请先输入 Agent 需求描述');
+      return;
+    }
+    setGenerating(true);
+    try {
+      const generated = await generateAgent({ description: genDescription });
+      form.setFieldsValue({
+        id: generated.id,
+        name: generated.name,
+        description: generated.description,
+        role: generated.role,
+        systemPrompt: generated.systemPrompt,
+        personality: generated.personality,
+        goal: generated.goal,
+        constraints: generated.constraints,
+        methods: generated.methods,
+        outputFormat: generated.outputFormat,
+        refusalStrategy: generated.refusalStrategy,
+        tools: generated.tools,
+        globalMemory: generated.globalMemory,
+        projectMemory: generated.projectMemory,
+      });
+      message.success('已生成 Agent 配置，请审阅后点击创建');
+    } catch (error) {
+      console.error('生成 Agent 失败:', error);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const handleEdit = (record: Agent) => {
     setEditTarget(record);
     const cfg = record.config;
     form.setFieldsValue({
       id: cfg.id,
       name: cfg.name,
+      description: cfg.description || '',
       role: cfg.role,
       systemPrompt: cfg.prompt.system,
       personality: cfg.prompt.personality,
@@ -130,6 +166,11 @@ export default function Agents() {
       skills: cfg.skills || [],
       globalMemory: cfg.memory.global,
       projectMemory: cfg.memory.project,
+      goal: cfg.instructions?.goal || '',
+      constraints: cfg.instructions?.constraints || '',
+      methods: cfg.instructions?.methods || '',
+      outputFormat: cfg.instructions?.outputFormat || '',
+      refusalStrategy: cfg.instructions?.refusalStrategy || '',
     });
     setModalOpen(true);
   };
@@ -146,6 +187,7 @@ export default function Agents() {
 
       const payload = {
         name: values.name,
+        description: values.description || '',
         role: values.role,
         prompt: {
           system: values.systemPrompt,
@@ -160,6 +202,13 @@ export default function Agents() {
           project: values.projectMemory ?? true,
         },
         skills: values.skills || [],
+        instructions: {
+          goal: values.goal || '',
+          constraints: values.constraints || '',
+          methods: values.methods || '',
+          outputFormat: values.outputFormat || '',
+          refusalStrategy: values.refusalStrategy || '',
+        },
       };
 
       if (editTarget) {
@@ -308,7 +357,7 @@ export default function Agents() {
       <Modal
         title={editTarget ? '编辑 Agent' : '新增 Agent'}
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); setEditTarget(null); }}
+        onCancel={() => { setModalOpen(false); form.resetFields(); setEditTarget(null); setGenDescription(''); }}
         onOk={handleSave}
         confirmLoading={saving}
         width={680}
@@ -321,6 +370,31 @@ export default function Agents() {
           layout="vertical"
         >
           {!editTarget && (
+            <Form.Item label="AI 生成 Agent" style={{ marginBottom: 8 }}>
+              <Input.TextArea
+                value={genDescription}
+                onChange={(e) => setGenDescription(e.target.value)}
+                rows={2}
+                placeholder="用自然语言描述你想要的 Agent，如：一个擅长 React 和 TypeScript 的前端开发 Agent，负责组件实现与代码审查"
+                disabled={generating}
+              />
+              <Button
+                type="primary"
+                ghost
+                icon={<ThunderboltOutlined />}
+                loading={generating}
+                onClick={handleGenerate}
+                style={{ marginTop: 8 }}
+              >
+                AI 生成
+              </Button>
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary">生成后自动填充下方表单，可在其基础上修改后再创建</Text>
+              </div>
+            </Form.Item>
+          )}
+
+          {!editTarget && (
             <Form.Item name="id" label="Agent ID" rules={[{ required: true, message: '请输入 Agent ID' }, { pattern: /^[a-zA-Z0-9_-]+$/, message: '只允许字母、数字、下划线、连字符' }]}>
               <Input placeholder="如：frontend-developer" />
             </Form.Item>
@@ -328,6 +402,10 @@ export default function Agents() {
 
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="如：前端开发Agent" />
+          </Form.Item>
+
+          <Form.Item name="description" label="描述">
+            <Input placeholder="一句话描述 Agent 的职责" />
           </Form.Item>
 
           <Form.Item name="role" label="角色" rules={[{ required: true }]}>
@@ -343,6 +421,22 @@ export default function Agents() {
 
           <Form.Item name="personality" label="性格特征（可选）">
             <Input placeholder="如：专业、严谨、注重代码质量" />
+          </Form.Item>
+
+          <Form.Item name="goal" label="目标">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="constraints" label="约束">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="methods" label="工作方法">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="outputFormat" label="输出格式">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="refusalStrategy" label="拒绝策略">
+            <Input.TextArea rows={3} />
           </Form.Item>
 
           <Form.Item name="tools" label="可用工具">
@@ -388,6 +482,7 @@ function AgentDetail({ agent, skillPacks }: { agent: Agent; skillPacks: SkillPac
       <Descriptions title="基本信息" bordered column={1} size="small">
         <Descriptions.Item label="ID">{agent.id}</Descriptions.Item>
         <Descriptions.Item label="名称">{agent.name}</Descriptions.Item>
+        <Descriptions.Item label="描述">{cfg.description || '无'}</Descriptions.Item>
         <Descriptions.Item label="角色">
           {cfg.role === 'supervisor' ? (
             <Tag color="blue">supervisor</Tag>
@@ -398,6 +493,14 @@ function AgentDetail({ agent, skillPacks }: { agent: Agent; skillPacks: SkillPac
         <Descriptions.Item label="内置">
           {agent.isBuiltIn ? '是' : '否'}
         </Descriptions.Item>
+      </Descriptions>
+
+      <Descriptions title="约束与规范" bordered column={1} size="small">
+        <Descriptions.Item label="目标">{cfg.instructions?.goal || '无'}</Descriptions.Item>
+        <Descriptions.Item label="约束">{cfg.instructions?.constraints || '无'}</Descriptions.Item>
+        <Descriptions.Item label="工作方法">{cfg.instructions?.methods || '无'}</Descriptions.Item>
+        <Descriptions.Item label="输出格式">{cfg.instructions?.outputFormat || '无'}</Descriptions.Item>
+        <Descriptions.Item label="拒绝策略">{cfg.instructions?.refusalStrategy || '无'}</Descriptions.Item>
       </Descriptions>
 
       <Descriptions title="Prompt 配置" bordered column={1} size="small">

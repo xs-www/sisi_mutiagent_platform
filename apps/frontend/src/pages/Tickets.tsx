@@ -42,14 +42,16 @@ const TYPE_TAG_COLOR: Record<TicketType, string> = {
   decision: 'purple',
 };
 
-const COLUMNS: TicketStatus[] = ['pending', 'in_progress', 'reviewing', 'completed'];
+const COLUMNS: TicketStatus[] = ['pending', 'in_progress', 'reviewing', 'completed', 'failed', 'blocked'];
 
-// 状态流转：pending → in_progress → reviewing → completed
+// 状态流转：pending → in_progress → reviewing → completed；failed → pending（重置）；blocked → in_progress（解除）
 const NEXT_STATUS: Record<TicketStatus, TicketStatus | null> = {
   pending: 'in_progress',
   in_progress: 'reviewing',
   reviewing: 'completed',
   completed: null,
+  failed: 'pending',
+  blocked: 'in_progress',
 };
 
 export default function Tickets() {
@@ -200,6 +202,8 @@ export default function Tickets() {
       in_progress: [],
       reviewing: [],
       completed: [],
+      failed: [],
+      blocked: [],
     };
     tickets.forEach((t) => {
       if (map[t.status]) map[t.status].push(t);

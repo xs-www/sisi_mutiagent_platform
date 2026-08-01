@@ -11,6 +11,11 @@ export async function getTicket(id: string): Promise<Ticket> {
   return resp.data;
 }
 
+export async function getChildTickets(parentId: string): Promise<Ticket[]> {
+  const resp = await http.get(`/tickets/${parentId}/children`);
+  return resp.data;
+}
+
 export async function createTicket(body: {
   projectId: string;
   title: string;

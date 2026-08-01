@@ -14,6 +14,7 @@ import {
   message,
   Empty,
   Descriptions,
+  Collapse,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -21,9 +22,11 @@ import {
   PlayCircleOutlined,
   ReloadOutlined,
   CaretRightOutlined,
+  StopOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
-import { getTicket, getMessages, sendMessage, updateTicketStatus } from '../api/ticket';
-import { getAgents, executeAgent } from '../api/agent';
+import { getTicket, getMessages, sendMessage, updateTicketStatus, getChildTickets } from '../api/ticket';
+import { getAgents, executeAgentStream } from '../api/agent';
 import {
   formatDate,
   TICKET_STATUS_LABEL,
@@ -31,7 +34,7 @@ import {
   TICKET_TYPE_LABEL,
   TICKET_STATUS_COLOR,
 } from '../utils';
-import type { Ticket, Message, Agent, TicketStatus } from '../types';
+import type { Ticket, Message, Agent, TicketStatus, MessageType, AgentEvent } from '../types';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -61,6 +64,7 @@ export default function TicketDetail() {
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [childTickets, setChildTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [sending, setSending] = useState<boolean>(false);
   const [executing, setExecuting] = useState<boolean>(false);
@@ -71,6 +75,8 @@ export default function TicketDetail() {
   const [collapsedThoughts, setCollapsedThoughts] = useState<Set<string>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const childAgentIds = useRef<Record<string, string>>({});
 
   const loadTicket = useCallback(async () => {
     if (!id) return;
@@ -106,12 +112,22 @@ export default function TicketDetail() {
     }
   }, [selectedAgentId]);
 
+  const loadChildTickets = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await getChildTickets(id);
+      setChildTickets(data);
+    } catch (error) {
+      console.error('加载子工单失败:', error);
+    }
+  }, [id]);
+
   const loadAll = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    await Promise.all([loadTicket(), loadMessages(), loadAgents()]);
+    await Promise.all([loadTicket(), loadMessages(), loadAgents(), loadChildTickets()]);
     setLoading(false);
-  }, [id, loadTicket, loadMessages, loadAgents]);
+  }, [id, loadTicket, loadMessages, loadAgents, loadChildTickets]);
 
   useEffect(() => {
     loadAll();
@@ -126,6 +142,19 @@ export default function TicketDetail() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [sortedMessages.length]);
+
+  // 轮询兜底：本地未通过 SSE 执行时，若工单处于进行中/待审核（如后台子工单执行），
+  // 定时拉取消息与状态，让用户看到后台 agent 的实时进展。
+  useEffect(() => {
+    if (!id || executing) return;
+    const status = ticket?.status;
+    if (status !== 'in_progress' && status !== 'reviewing') return;
+    const timer = setInterval(() => {
+      void Promise.all([loadTicket(), loadMessages(), loadChildTickets()]);
+    }, 2500);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, ticket?.status, executing]);
 
   const handleSend = async () => {
     const content = inputText.trim();
@@ -152,30 +181,191 @@ export default function TicketDetail() {
     if (!id || !selectedAgentId) return;
     setExecuting(true);
     setExecuteResult(null);
+    const ac = new AbortController();
+    abortRef.current = ac;
+    let agentIdForSender = selectedAgentId;
+
     try {
-      const result = await executeAgent(selectedAgentId, { ticketId: id });
-      setExecuteResult({
-        iterations: result.iterations,
-        completed: result.completed,
-        error: result.error,
-      });
-      if (result.error) {
-        message.warning('Agent 执行完成，但存在错误');
-      } else {
-        message.success(`Agent 执行完成，迭代 ${result.iterations} 次`);
-      }
-      await loadMessages();
-    } catch (error) {
-      console.error('Agent 执行失败:', error);
+      await executeAgentStream(
+        selectedAgentId,
+        { ticketId: id, projectId: ticket?.projectId },
+        {
+          signal: ac.signal,
+          onEvent: (event: AgentEvent) => {
+            const childId = event.childTicketId;
+            const childTitle = event.childTicketTitle;
+
+            // ===== 子工单事件（同步串行透传）：内联渲染，避免父工单页面阻塞期间静默 =====
+            if (childId) {
+              switch (event.type) {
+                case 'start':
+                  childAgentIds.current[childId] = event.agentId;
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `child-start-${childId}-${event.timestamp}`,
+                      ticketId: id,
+                      senderType: 'system',
+                      senderId: 'system',
+                      content: `📂 子工单「${childTitle}」开始执行`,
+                      messageType: 'text',
+                      createdAt: event.timestamp,
+                    },
+                  ]);
+                  break;
+                case 'thought':
+                case 'action':
+                case 'observation':
+                case 'message': {
+                  const msgType: MessageType = event.type === 'message' ? 'text' : (event.type as MessageType);
+                  const isAgent = event.senderType === 'agent';
+                  setMessages((prev) =>
+                    prev.some((m) => m.id === event.messageId)
+                      ? prev
+                      : [
+                          ...prev,
+                          {
+                            id: event.messageId,
+                            ticketId: id,
+                            senderType: isAgent ? 'agent' : 'system',
+                            senderId: isAgent ? childAgentIds.current[childId] || childId : 'system',
+                            content: `[子工单: ${childTitle}] ${event.content}`,
+                            messageType: msgType,
+                            createdAt: event.createdAt,
+                          },
+                        ]
+                  );
+                  break;
+                }
+                case 'ticket_status':
+                  // 子工单状态变化只更新子工单列表，不影响父工单状态
+                  setChildTickets((prev) =>
+                    prev.map((t) => (t.id === childId ? { ...t, status: event.status } : t))
+                  );
+                  break;
+                case 'complete':
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `child-complete-${childId}-${event.timestamp}`,
+                      ticketId: id,
+                      senderType: 'system',
+                      senderId: 'system',
+                      content: `✅ 子工单「${childTitle}」执行完成`,
+                      messageType: 'text',
+                      createdAt: event.timestamp,
+                    },
+                  ]);
+                  break;
+                case 'error':
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `child-error-${childId}-${event.timestamp}`,
+                      ticketId: id,
+                      senderType: 'system',
+                      senderId: 'system',
+                      content: `⚠️ 子工单「${childTitle}」执行失败: ${event.error}`,
+                      messageType: 'text',
+                      createdAt: event.timestamp,
+                    },
+                  ]);
+                  break;
+                case 'iteration_start':
+                default:
+                  break;
+              }
+              return;
+            }
+
+            // ===== 父工单事件 =====
+            switch (event.type) {
+              case 'start':
+                agentIdForSender = event.agentId;
+                break;
+              case 'thought':
+              case 'action':
+              case 'observation':
+              case 'message': {
+                const msgType: MessageType = event.type === 'message' ? 'text' : (event.type as MessageType);
+                const isAgent = event.senderType === 'agent';
+                const synth: Message = {
+                  id: event.messageId,
+                  ticketId: id,
+                  senderType: isAgent ? 'agent' : 'system',
+                  senderId: isAgent ? agentIdForSender : 'system',
+                  content: event.content,
+                  messageType: msgType,
+                  createdAt: event.createdAt,
+                };
+                setMessages((prev) => (prev.some((m) => m.id === synth.id) ? prev : [...prev, synth]));
+                break;
+              }
+              case 'ticket_status':
+                setTicket((prev) => (prev ? { ...prev, status: event.status } : prev));
+                break;
+              case 'child_dispatched':
+                childAgentIds.current[event.childTicketId] = event.assigneeId;
+                setChildTickets((prev) =>
+                  prev.some((t) => t.id === event.childTicketId)
+                    ? prev
+                    : [
+                        ...prev,
+                        {
+                          id: event.childTicketId,
+                          projectId: ticket?.projectId || '',
+                          title: event.childTicketTitle,
+                          description: '',
+                          type: 'task',
+                          priority: 'medium',
+                          status: 'in_progress',
+                          assigneeId: event.assigneeId,
+                          createdBy: selectedAgentId,
+                          parentTicketId: id,
+                          createdAt: event.timestamp,
+                          updatedAt: event.timestamp,
+                          completedAt: null,
+                        },
+                      ]
+                );
+                break;
+              case 'complete':
+              case 'error':
+                break;
+            }
+          },
+          onComplete: (result) => {
+            setExecuteResult({
+              iterations: result.iterations,
+              completed: result.completed,
+              error: result.error,
+            });
+            if (result.error) {
+              message.warning('Agent 执行完成，但存在错误');
+            } else {
+              message.success(`Agent 执行完成，迭代 ${result.iterations} 次`);
+            }
+          },
+          onError: (err) => {
+            message.error(err.message);
+            setExecuteResult({ iterations: 0, completed: false, error: err.message });
+          },
+        }
+      );
+    } catch (e) {
+      console.error('Agent 执行失败:', e);
       message.error('Agent 执行失败');
-      setExecuteResult({
-        iterations: 0,
-        completed: false,
-        error: '执行请求失败',
-      });
+      setExecuteResult({ iterations: 0, completed: false, error: '执行请求失败' });
     } finally {
       setExecuting(false);
+      abortRef.current = null;
+      // 用服务端真相刷新，消除流式累积漂移
+      await Promise.all([loadTicket(), loadMessages(), loadChildTickets()]);
     }
+  };
+
+  const handleStopExecute = () => {
+    abortRef.current?.abort();
   };
 
   const handleStatusChange = async (next: TicketStatus) => {
@@ -250,6 +440,36 @@ export default function TicketDetail() {
           onClick={() => handleStatusChange('in_progress')}
         >
           退回修改
+        </Button>,
+      );
+    } else if (status === 'failed') {
+      buttons.push(
+        <Button
+          key="reset"
+          loading={statusUpdating}
+          onClick={() => handleStatusChange('pending')}
+        >
+          重置为待处理
+        </Button>,
+        <Button
+          key="retry"
+          type="primary"
+          icon={<PlayCircleOutlined />}
+          disabled={!selectedAgentId || executing}
+          onClick={handleExecute}
+        >
+          重新执行
+        </Button>,
+      );
+    } else if (status === 'blocked') {
+      buttons.push(
+        <Button
+          key="unblock"
+          type="primary"
+          loading={statusUpdating}
+          onClick={() => handleStatusChange('in_progress')}
+        >
+          解除阻塞
         </Button>,
       );
     }
@@ -489,6 +709,21 @@ export default function TicketDetail() {
               <Descriptions.Item label="更新时间">
                 {formatDate(ticket.updatedAt)}
               </Descriptions.Item>
+              <Descriptions.Item label="父工单">
+                {ticket.parentTicketId ? (
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<LinkOutlined />}
+                    style={{ padding: 0, height: 'auto' }}
+                    onClick={() => navigate(`/tickets/${ticket.parentTicketId}`)}
+                  >
+                    前往父工单
+                  </Button>
+                ) : (
+                  <Text type="secondary">无</Text>
+                )}
+              </Descriptions.Item>
             </Descriptions>
             {ticket.description && (
               <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
@@ -503,6 +738,41 @@ export default function TicketDetail() {
                 </Button>
               </Space>
             </div>
+            {childTickets.length > 0 && (
+              <Collapse
+                size="small"
+                style={{ marginTop: 12 }}
+                defaultActiveKey={['children']}
+                items={[
+                  {
+                    key: 'children',
+                    label: `子工单（${childTickets.length}）`,
+                    children: (
+                      <Space direction="vertical" style={{ width: '100%' }} size="small">
+                        {childTickets.map((ct) => (
+                          <div
+                            key={ct.id}
+                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                          >
+                            <Button
+                              type="link"
+                              size="small"
+                              style={{ padding: 0, height: 'auto', textAlign: 'left' }}
+                              onClick={() => navigate(`/tickets/${ct.id}`)}
+                            >
+                              {ct.title}
+                            </Button>
+                            <Tag color={TICKET_STATUS_COLOR[ct.status]}>
+                              {TICKET_STATUS_LABEL[ct.status]}
+                            </Tag>
+                          </div>
+                        ))}
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            )}
           </div>
 
           {/* Agent 执行区 */}
@@ -516,16 +786,25 @@ export default function TicketDetail() {
                 options={agents.map((a) => ({ label: a.name, value: a.id }))}
                 notFoundContent="暂无可用 Agent"
               />
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                loading={executing}
-                disabled={!selectedAgentId}
-                block
-                onClick={handleExecute}
-              >
-                {executing ? '执行中...' : '执行 Agent'}
-              </Button>
+              <Space style={{ width: '100%' }}>
+                <Button
+                  type="primary"
+                  icon={<PlayCircleOutlined />}
+                  loading={executing}
+                  disabled={!selectedAgentId}
+                  onClick={handleExecute}
+                  style={{ flex: 1 }}
+                >
+                  {executing ? '执行中...' : '执行 Agent'}
+                </Button>
+                {executing && (
+                  <Tooltip title="停止执行（当前迭代结束后中止）">
+                    <Button danger icon={<StopOutlined />} onClick={handleStopExecute}>
+                      停止
+                    </Button>
+                  </Tooltip>
+                )}
+              </Space>
               {executeResult && (
                 <Alert
                   type={executeResult.error ? 'error' : 'success'}
@@ -572,7 +851,7 @@ export default function TicketDetail() {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="输入消息，Enter 发送，Shift+Enter 换行..."
-            disabled={sending}
+            disabled={sending || executing}
             autoSize={{ minRows: 2, maxRows: 6 }}
             autoFocus
             onKeyDown={(e) => {
@@ -589,7 +868,7 @@ export default function TicketDetail() {
                 icon={<SendOutlined />}
                 onClick={handleSend}
                 loading={sending}
-                disabled={!inputText.trim()}
+                disabled={!inputText.trim() || executing}
               >
                 发送
               </Button>

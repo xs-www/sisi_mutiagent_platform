@@ -39,9 +39,15 @@ export function parseAgentResponse(response: string): ParsedAction {
       inAction = false;
       thought = trimmed.slice('Thought:'.length).trim();
     } else if (trimmed.startsWith('Action:')) {
-      inThought = false;
-      inAction = true;
-      actionLine = trimmed.slice('Action:'.length).trim();
+      if (actionLine) {
+        // 已捕获第一个 Action：ReAct 每步只执行一个动作，忽略后续多余的 Action 行
+        console.warn(`[action-parser] 检测到多个 Action，仅执行第一个，已忽略: ${trimmed.slice(0, 80)}`);
+        inAction = false;
+      } else {
+        inThought = false;
+        inAction = true;
+        actionLine = trimmed.slice('Action:'.length).trim();
+      }
     } else if (inThought) {
       thought += '\n' + trimmed;
     } else if (inAction) {

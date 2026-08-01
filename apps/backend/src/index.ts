@@ -6,7 +6,9 @@ import { initDb, closeDb } from './db/index.js';
 import { syncAgentsToDb, agentRouter } from './modules/agent/index.js';
 import { llmRouter } from './modules/llm/index.js';
 import { ticketRouter } from './modules/ticket/index.js';
+import { migrateTicketPayloadsToProjectFiles } from './modules/ticket/repository.js';
 import { projectRouter } from './modules/project/index.js';
+import { migrateProjectStorageDirsToNameBased } from './modules/project/repository.js';
 import { toolRouter } from './modules/tools/index.js';
 import { approvalRouter } from './modules/approval/index.js';
 import { apiKeyRouter } from './modules/apikeys/index.js';
@@ -35,6 +37,8 @@ app.use('/api/skills', skillRouter);
 
 // 初始化
 initDb();
+migrateProjectStorageDirsToNameBased();
+migrateTicketPayloadsToProjectFiles();
 syncAgentsToDb();
 
 // 优雅关闭

@@ -7,6 +7,7 @@ import type { ToolExecutionContext } from './types.js';
 import { getProjectMemberProfiles, resolveProjectAssignee } from '../project/repository.js';
 import { createTicket } from '../ticket/repository.js';
 import { getTicketById } from '../ticket/repository.js';
+import { dispatchChildTicketExecution } from '../agent/orchestration.js';
 
 // ========== 安全工具：路径检查 ==========
 function resolveSafePath(workspacePath: string, userPath: string): { error?: string; path?: string } {
@@ -320,7 +321,7 @@ export function toolGetProjectMembers(params: Record<string, any>, context: Tool
   };
 }
 
-export function toolCreateTicket(params: Record<string, any>, context: ToolExecutionContext): ToolExecutionResult {
+export async function toolCreateTicket(params: Record<string, any>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
   const startTime = Date.now();
   const projectId = resolveToolProjectId(params, context);
   const title = params.title as string;
@@ -337,6 +338,16 @@ export function toolCreateTicket(params: Record<string, any>, context: ToolExecu
     assigneeId: assignee?.agentId,
     createdBy: context.agentId || 'agent',
     parentTicketId: (params.parentTicketId as string) || context.ticketId,
+  });
+
+  // 同步串行：等待子工单执行完成再返回，保证依赖顺序（工具路径无 onEvent 透传，
+  // 子工单进展可通过子工单详情页轮询查看）
+  await dispatchChildTicketExecution({
+    parentTicketId: (params.parentTicketId as string) || context.ticketId,
+    createdTicket: ticket,
+    projectId,
+    triggerAgentId: context.agentId,
+    triggerAgentName: context.agentName,
   });
 
   return {

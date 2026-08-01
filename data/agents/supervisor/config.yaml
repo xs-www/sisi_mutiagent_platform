@@ -23,3 +23,5 @@ memory:
   global: true
   project: true
 skills: []
+description: ""
+instructions: {}

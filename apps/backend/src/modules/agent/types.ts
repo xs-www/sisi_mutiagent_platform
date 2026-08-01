@@ -18,14 +18,24 @@ export interface AgentMemoryConfig {
   project: boolean;
 }
 
+export interface AgentInstructions {
+  goal?: string;
+  constraints?: string;
+  methods?: string;
+  outputFormat?: string;
+  refusalStrategy?: string;
+}
+
 export interface AgentConfig {
   id: string;
   name: string;
+  description?: string;
   role: AgentRole;
   prompt: AgentPromptConfig;
   tools: AgentToolsConfig;
   memory: AgentMemoryConfig;
   skills?: string[];
+  instructions?: AgentInstructions;
 }
 
 export interface Agent {

@@ -1,7 +1,7 @@
 // apps/backend/src/modules/ticket/routes.ts
 import { Router } from 'express';
 import {
-  createTicket, getTicketById, getTicketsByProject,
+  createTicket, getTicketById, getTicketsByProject, getTicketsByParent,
   updateTicketStatus, assignTicket, deleteTicket as deleteTicketFn,
   createMessage, getMessagesByTicket
 } from './repository.js';
@@ -10,6 +10,22 @@ import type { TicketType, TicketPriority, TicketStatus, MessageSenderType, Messa
 import { resolveProjectAssignee } from '../project/repository.js';
 
 export const ticketRouter = Router();
+
+// 合法状态迁移约束
+const VALID_STATUSES: TicketStatus[] = ['pending', 'in_progress', 'reviewing', 'completed', 'failed', 'blocked'];
+const VALID_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
+  pending: ['in_progress', 'failed', 'blocked'],
+  in_progress: ['reviewing', 'completed', 'failed', 'blocked', 'pending'],
+  reviewing: ['completed', 'in_progress', 'failed'],
+  completed: ['pending'], // 终态，重开需先回 pending
+  failed: ['pending', 'in_progress'], // 重置或重新执行
+  blocked: ['in_progress', 'pending'], // 解除阻塞
+};
+
+function isValidTransition(from: TicketStatus, to: TicketStatus): boolean {
+  const allowed = VALID_TRANSITIONS[from];
+  return !!allowed && allowed.includes(to);
+}
 
 // Agent 代创建工单
 ticketRouter.post('/from-agent', (req, res) => {
@@ -85,6 +101,16 @@ ticketRouter.get('/project/:projectId', (req, res) => {
   }
 });
 
+// 获取工单的子工单列表（注册在 GET /:id 之前，路径更具体优先匹配）
+ticketRouter.get('/:id/children', (req, res) => {
+  try {
+    const children = getTicketsByParent(req.params.id);
+    res.json(children);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 获取单个工单
 ticketRouter.get('/:id', (req, res) => {
   try {
@@ -99,13 +125,20 @@ ticketRouter.get('/:id', (req, res) => {
 });
 
 // 更新工单状态
-ticketRouter.patch('/:id/status', (req, res) => {
+ticketRouter.patch('/:id/status', async (req, res) => {
   try {
     const status = req.body.status as TicketStatus;
-    if (!['pending', 'in_progress', 'reviewing', 'completed'].includes(status)) {
+    if (!VALID_STATUSES.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
-    const ticket = updateTicketStatus(req.params.id, status);
+    const current = getTicketById(req.params.id);
+    if (!current) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    if (current.status !== status && !isValidTransition(current.status, status)) {
+      return res.status(400).json({ error: `不允许的状态迁移：${current.status} → ${status}` });
+    }
+    const ticket = await updateTicketStatus(req.params.id, status);
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
@@ -116,9 +149,9 @@ ticketRouter.patch('/:id/status', (req, res) => {
 });
 
 // 分配工单
-ticketRouter.patch('/:id/assign', (req, res) => {
+ticketRouter.patch('/:id/assign', async (req, res) => {
   try {
-    const ticket = assignTicket(req.params.id, req.body.agentId);
+    const ticket = await assignTicket(req.params.id, req.body.agentId);
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
@@ -139,7 +172,7 @@ ticketRouter.get('/:id/messages', (req, res) => {
 });
 
 // 发送消息到工单
-ticketRouter.post('/:id/messages', (req, res) => {
+ticketRouter.post('/:id/messages', async (req, res) => {
   try {
     const input: CreateMessageInput = {
       ticketId: req.params.id,
@@ -153,7 +186,7 @@ ticketRouter.post('/:id/messages', (req, res) => {
       return res.status(400).json({ error: 'senderId and content are required' });
     }
 
-    const message = createMessage(input);
+    const message = await createMessage(input);
     res.status(201).json(message);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

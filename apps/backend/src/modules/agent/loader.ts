@@ -5,24 +5,187 @@ import { join } from 'path';
 import { config } from '../../config/index.js';
 import type { AgentConfig, Agent } from './types.js';
 import { getDb } from '../../db/index.js';
-import { v4 as uuidv4 } from 'uuid';
 
-const agentsDir = join(config.dataDir, 'agents');
+function getAgentsDir(): string {
+  return join(config.dataDir, 'agents');
+}
+
+function getAgentDir(agentId: string): string {
+  const canonicalDir = join(getAgentsDir(), agentId);
+  if (existsSync(canonicalDir)) {
+    return canonicalDir;
+  }
+
+  const legacyDir = join(config.dataDir, agentId);
+  if (existsSync(legacyDir)) {
+    return legacyDir;
+  }
+
+  return canonicalDir;
+}
+
+function parseMarkdownAgent(markdown: string, agentId: string): AgentConfig | null {
+  const lines = markdown.split(/\r?\n/);
+  const firstDelimiter = lines.findIndex((line) => line.trim() === '---');
+  if (firstDelimiter < 0) {
+    return null;
+  }
+
+  const secondDelimiter = lines.findIndex((line, index) => index > firstDelimiter && line.trim() === '---');
+  if (secondDelimiter < 0) {
+    return null;
+  }
+
+  const frontMatter = lines.slice(firstDelimiter + 1, secondDelimiter).join('\n');
+  const body = lines.slice(secondDelimiter + 1).join('\n');
+  const metadata = (parseYaml(frontMatter) || {}) as Partial<AgentConfig>;
+
+  const sections: Record<string, string> = {};
+  let currentSection: string | null = null;
+  for (const line of body.split(/\r?\n/)) {
+    const heading = line.match(/^##\s*(.+)$/);
+    if (heading) {
+      currentSection = heading[1].trim();
+      sections[currentSection] = '';
+      continue;
+    }
+
+    if (currentSection) {
+      sections[currentSection] += `${line}\n`;
+    }
+  }
+
+  const prompt = metadata.prompt || { system: '' };
+  const toolsInput = metadata.tools as any;
+  const approvalRequiredInput = Array.isArray((metadata as any).approvalRequired)
+    ? (metadata as any).approvalRequired as string[]
+    : Array.isArray(toolsInput?.approvalRequired)
+      ? toolsInput.approvalRequired as string[]
+      : [];
+  const predefinedTools = Array.isArray(toolsInput)
+    ? toolsInput as string[]
+    : (toolsInput?.predefined as string[] | undefined) || [];
+  const customTools = Array.isArray(toolsInput?.custom) ? toolsInput.custom as string[] : [];
+  const memory = metadata.memory || { global: true, project: true };
+  const instructions = metadata.instructions || {};
+
+  const normalizedApprovalRequired = approvalRequiredInput.length > 0
+    ? approvalRequiredInput
+    : predefinedTools.filter((name) => ['file_delete', 'shell_execute'].includes(name));
+
+  return {
+    id: agentId,
+    name: metadata.name || agentId,
+    description: metadata.description || '',
+    role: metadata.role || 'specialist',
+    prompt: {
+      system: prompt.system || '',
+      personality: prompt.personality,
+    },
+    tools: {
+      predefined: predefinedTools,
+      approvalRequired: normalizedApprovalRequired,
+      custom: customTools,
+    },
+    memory: {
+      global: memory.global ?? true,
+      project: memory.project ?? true,
+    },
+    skills: metadata.skills || [],
+    instructions: {
+      goal: instructions.goal || sections['目标']?.trim(),
+      constraints: instructions.constraints || sections['约束']?.trim(),
+      methods: instructions.methods || sections['工作方法']?.trim(),
+      outputFormat: instructions.outputFormat || sections['输出格式']?.trim(),
+      refusalStrategy: instructions.refusalStrategy || sections['拒绝策略']?.trim(),
+    },
+  };
+}
+
+function readMarkdownAgent(agentId: string): AgentConfig | null {
+  const agentDir = getAgentDir(agentId);
+  const markdownPath = join(agentDir, `${agentId}.agent.md`);
+  if (!existsSync(markdownPath)) {
+    return null;
+  }
+
+  const markdown = readFileSync(markdownPath, 'utf-8');
+  return parseMarkdownAgent(markdown, agentId);
+}
+
+function writeAgentFiles(agentConfig: AgentConfig): { markdownPath: string; configPath: string } {
+  const existingDir = getAgentDir(agentConfig.id);
+  const agentDir = existsSync(existingDir) && existingDir !== join(getAgentsDir(), agentConfig.id)
+    ? existingDir
+    : join(getAgentsDir(), agentConfig.id);
+  mkdirSync(agentDir, { recursive: true });
+
+  const markdownPath = join(agentDir, `${agentConfig.id}.agent.md`);
+  const configPath = join(agentDir, 'config.yaml');
+
+  const frontMatter = {
+    name: agentConfig.name,
+    description: agentConfig.description || '',
+    role: agentConfig.role,
+    prompt: agentConfig.prompt,
+    tools: agentConfig.tools.predefined || [],
+    approvalRequired: agentConfig.tools.approvalRequired || [],
+    memory: agentConfig.memory,
+    skills: agentConfig.skills || [],
+    instructions: agentConfig.instructions || {},
+  };
+
+  const sections = [
+    agentConfig.instructions?.goal ? ['## 目标', agentConfig.instructions.goal, ''] : [],
+    agentConfig.instructions?.constraints ? ['## 约束', agentConfig.instructions.constraints, ''] : [],
+    agentConfig.instructions?.methods ? ['## 工作方法', agentConfig.instructions.methods, ''] : [],
+    agentConfig.instructions?.outputFormat ? ['## 输出格式', agentConfig.instructions.outputFormat, ''] : [],
+    agentConfig.instructions?.refusalStrategy ? ['## 拒绝策略', agentConfig.instructions.refusalStrategy, ''] : [],
+  ].flat();
+
+  const markdown = ['---', stringifyYaml(frontMatter).trim(), '---', '', ...sections].join('\n');
+
+  writeFileSync(markdownPath, markdown, 'utf-8');
+  writeFileSync(configPath, stringifyYaml(agentConfig), 'utf-8');
+
+  return { markdownPath, configPath };
+}
 
 export function loadAgentConfig(agentId: string): AgentConfig | null {
-  const configPath = join(agentsDir, agentId, 'config.yaml');
+  const markdownConfig = readMarkdownAgent(agentId);
+  if (markdownConfig) {
+    const configPath = join(getAgentDir(agentId), 'config.yaml');
+    if (!existsSync(configPath)) {
+      writeAgentFiles(markdownConfig);
+    }
+    return markdownConfig;
+  }
 
+  const configPath = join(getAgentsDir(), agentId, 'config.yaml');
   if (!existsSync(configPath)) {
     return null;
   }
 
   const content = readFileSync(configPath, 'utf-8');
-  const parsed = parseYaml(content);
-
-  return parsed as AgentConfig;
+  const parsed = parseYaml(content) as AgentConfig;
+  const normalized: AgentConfig = {
+    ...parsed,
+    id: agentId,
+    name: parsed.name || agentId,
+    description: parsed.description || '',
+    role: parsed.role || 'specialist',
+    prompt: parsed.prompt || { system: '' },
+    tools: parsed.tools || { predefined: [] },
+    memory: parsed.memory || { global: true, project: true },
+    skills: parsed.skills || [],
+    instructions: parsed.instructions || {},
+  };
+  writeAgentFiles(normalized);
+  return normalized;
 }
 
 export function loadAllAgents(): AgentConfig[] {
+  const agentsDir = getAgentsDir();
   if (!existsSync(agentsDir)) {
     return [];
   }
@@ -57,7 +220,7 @@ export function syncAgentsToDb(): void {
   `);
 
   for (const agentConfig of configs) {
-    const configPath = join(agentsDir, agentConfig.id, 'config.yaml');
+    const configPath = join(getAgentsDir(), agentConfig.id, 'config.yaml');
     upsertStmt.run(agentConfig.id, agentConfig.name, agentConfig.role, configPath);
   }
 
@@ -107,14 +270,12 @@ export function getAllAgentsFromDb(): Agent[] {
 }
 
 export function createAgentConfig(agentConfig: AgentConfig): Agent {
-  const agentDir = join(agentsDir, agentConfig.id);
+  const agentDir = join(getAgentsDir(), agentConfig.id);
   if (existsSync(agentDir)) {
     throw new Error(`Agent "${agentConfig.id}" already exists`);
   }
 
-  mkdirSync(agentDir, { recursive: true });
-  const configPath = join(agentDir, 'config.yaml');
-  writeFileSync(configPath, stringifyYaml(agentConfig), 'utf-8');
+  const { configPath } = writeAgentFiles(agentConfig);
 
   const db = getDb();
   db.prepare(`
@@ -134,7 +295,7 @@ export function createAgentConfig(agentConfig: AgentConfig): Agent {
 }
 
 export function deleteAgentConfig(agentId: string): boolean {
-  const agentDir = join(agentsDir, agentId);
+  const agentDir = join(getAgentsDir(), agentId);
   if (!existsSync(agentDir)) {
     return false;
   }
@@ -161,9 +322,7 @@ export function updateAgentConfig(agentId: string, updates: Partial<AgentConfig>
     memory: { ...existing.config.memory, ...updates.memory },
   };
 
-  // 写入 YAML
-  const configPath = join(agentsDir, agentId, 'config.yaml');
-  writeFileSync(configPath, stringifyYaml(merged), 'utf-8');
+  const { configPath } = writeAgentFiles(merged);
 
   // 更新数据库
   const db = getDb();

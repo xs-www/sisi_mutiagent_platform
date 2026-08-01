@@ -32,8 +32,10 @@ import {
   CloseCircleOutlined,
   PlayCircleOutlined,
   PlusOutlined,
+  FolderOpenOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
-import { getProject, updateProject, getProjectMembers, addProjectMember, removeProjectMember } from '../api/project';
+import { getProject, updateProject, getProjectMembers, addProjectMember, removeProjectMember, openProjectFolder } from '../api/project';
 import { getTicketsByProject, deleteTicket } from '../api/ticket';
 import { getAgents } from '../api/agent';
 import { useGlobalStore } from '../store';
@@ -165,6 +167,16 @@ export default function ProjectDetail() {
       if (id) setTickets(await getTicketsByProject(id));
     } catch (error) {
       console.error('删除工单失败:', error);
+    }
+  };
+
+  const handleOpenFolder = async (target: 'project' | 'workspace') => {
+    if (!id) return;
+    try {
+      await openProjectFolder(id, target);
+      message.success(target === 'workspace' ? '已在资源管理器打开工作空间' : '已在资源管理器打开项目目录');
+    } catch (error) {
+      console.error('打开文件夹失败:', error);
     }
   };
 
@@ -317,6 +329,12 @@ export default function ProjectDetail() {
               </Space>
             </Space>
             <Space>
+              <Button icon={<FolderOpenOutlined />} onClick={() => handleOpenFolder('project')}>
+                项目目录
+              </Button>
+              <Button icon={<CodeOutlined />} onClick={() => handleOpenFolder('workspace')}>
+                工作空间
+              </Button>
               <Button icon={<EditOutlined />} onClick={handleEdit}>
                 编辑项目
               </Button>

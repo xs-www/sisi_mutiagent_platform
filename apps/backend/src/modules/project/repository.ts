@@ -1,8 +1,8 @@
 // apps/backend/src/modules/project/repository.ts
 import { getDb } from '../../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
-import { mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'fs';
+import { dirname, join, resolve, sep } from 'path';
 import { config } from '../../config/index.js';
 import { getAgentFromDb } from '../agent/loader.js';
 import type { Project, ProjectMember, CreateProjectInput, UpdateProjectInput } from './types.js';
@@ -14,16 +14,196 @@ export interface ProjectMemberProfile extends ProjectMember {
 }
 
 const projectsDir = join(config.dataDir, 'projects');
+const PROJECT_META_FILE = 'project.json';
+
+function normalizePath(pathValue: string): string {
+  return resolve(pathValue).replace(/[/\\]+$/g, '').toLowerCase();
+}
+
+function isPathInside(parentDir: string, candidatePath: string): boolean {
+  const parent = normalizePath(parentDir);
+  const candidate = normalizePath(candidatePath);
+  return candidate === parent || candidate.startsWith(parent + sep.toLowerCase());
+}
+
+function ensureProjectDirScaffold(projectDir: string): void {
+  mkdirSync(join(projectDir, 'workspace'), { recursive: true });
+  mkdirSync(join(projectDir, 'agents'), { recursive: true });
+  mkdirSync(join(projectDir, 'tickets'), { recursive: true });
+}
+
+function sanitizeName(name: string): string {
+  const trimmed = name.trim();
+  const safe = trimmed
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
+    .replace(/\s+/g, '_')
+    .replace(/-+/g, '-')
+    .replace(/_+/g, '_')
+    .replace(/^[-_.]+|[-_.]+$/g, '');
+  return safe || 'untitled_project';
+}
+
+function buildUniqueProjectDirByName(projectName: string, currentDirPath?: string): string {
+  const base = sanitizeName(projectName);
+  let candidate = base;
+  let n = 2;
+
+  while (true) {
+    const full = join(projectsDir, candidate);
+    if (!existsSync(full) || (currentDirPath && full === currentDirPath)) {
+      return full;
+    }
+    candidate = `${base}_${n}`;
+    n += 1;
+  }
+}
+
+function resolveProjectDirFromRecord(project: Project): string {
+  const wsDir = dirname(project.workspacePath);
+  if (existsSync(wsDir) && isPathInside(projectsDir, wsDir)) {
+    return wsDir;
+  }
+
+  const legacyUuidDir = join(projectsDir, project.id);
+  if (existsSync(legacyUuidDir)) {
+    return legacyUuidDir;
+  }
+
+  return buildUniqueProjectDirByName(project.name);
+}
+
+function getProjectDir(projectId: string): string {
+  const project = getProjectById(projectId);
+  if (project) {
+    return resolveProjectDirFromRecord(project);
+  }
+  return join(projectsDir, projectId);
+}
+
+function getProjectMetaPath(projectId: string): string {
+  return join(getProjectDir(projectId), PROJECT_META_FILE);
+}
+
+function writeJsonFile(filePath: string, data: unknown): void {
+  writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function persistProjectDocument(project: Project): void {
+  const members = getProjectMembers(project.id);
+  mkdirSync(getProjectDir(project.id), { recursive: true });
+  writeJsonFile(getProjectMetaPath(project.id), {
+    project,
+    members,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export function getProjectStorageDir(projectId: string): string {
+  return getProjectDir(projectId);
+}
+
+export function getProjectTicketsDir(projectId: string): string {
+  return join(getProjectDir(projectId), 'tickets');
+}
+
+export function buildProjectWorkspaceDigest(projectId: string, maxEntries = 120): string {
+  const project = getProjectById(projectId);
+  if (!project) {
+    return '项目不存在，无法读取项目目录上下文。';
+  }
+
+  const root = getProjectDir(projectId);
+  if (!existsSync(root)) {
+    return '项目目录不存在，无法读取目录内容。';
+  }
+
+  const lines: string[] = [];
+  let count = 0;
+  const maxDepth = 4;
+
+  const walk = (dirPath: string, depth: number): void => {
+    if (count >= maxEntries || depth > maxDepth) return;
+
+    const entries = readdirSync(dirPath, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of entries) {
+      if (count >= maxEntries) break;
+
+      const fullPath = join(dirPath, entry.name);
+      const relPath = fullPath.slice(root.length + 1).replace(/\\/g, '/');
+      const indent = '  '.repeat(depth);
+
+      if (entry.isDirectory()) {
+        lines.push(`${indent}- ${relPath}/`);
+        count += 1;
+        walk(fullPath, depth + 1);
+      } else if (entry.isFile()) {
+        let sizeLabel = '';
+        try {
+          const st = statSync(fullPath);
+          sizeLabel = ` (${st.size}B)`;
+        } catch {
+          sizeLabel = '';
+        }
+        lines.push(`${indent}- ${relPath}${sizeLabel}`);
+        count += 1;
+      }
+    }
+  };
+
+  walk(root, 0);
+
+  if (lines.length === 0) {
+    return '项目目录为空。';
+  }
+
+  const truncated = count >= maxEntries ? '\n(目录条目过多，已截断)' : '';
+  return `项目目录摘要（${project.name}）:\n${lines.join('\n')}${truncated}`;
+}
+
+export function migrateProjectStorageDirsToNameBased(): void {
+  const db = getDb();
+  const projects = getAllProjects();
+
+  for (const project of projects) {
+    const currentProjectDir = resolveProjectDirFromRecord(project);
+    const targetProjectDir = buildUniqueProjectDirByName(project.name, currentProjectDir);
+
+    let nextWorkspacePath = join(currentProjectDir, 'workspace');
+
+    if (!isPathInside(projectsDir, currentProjectDir)) {
+      console.warn(`[project-migrate] skip unsafe project dir: ${currentProjectDir}`);
+      continue;
+    }
+
+    ensureProjectDirScaffold(currentProjectDir);
+
+    if (currentProjectDir !== targetProjectDir && existsSync(currentProjectDir)) {
+      renameSync(currentProjectDir, targetProjectDir);
+      nextWorkspacePath = join(targetProjectDir, 'workspace');
+    }
+
+    db.prepare('UPDATE projects SET workspace_path = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      .run(nextWorkspacePath, project.id);
+
+    const refreshed = getProjectById(project.id);
+    if (refreshed) {
+      const safeDir = resolveProjectDirFromRecord(refreshed);
+      ensureProjectDirScaffold(safeDir);
+      persistProjectDocument(refreshed);
+    }
+  }
+}
 
 export function createProject(input: CreateProjectInput): Project {
   const db = getDb();
   const id = uuidv4();
-  const workspacePath = join(projectsDir, id, 'workspace');
+  const projectDir = buildUniqueProjectDirByName(input.name);
+  const workspacePath = join(projectDir, 'workspace');
 
   // 创建项目目录结构
-  mkdirSync(join(projectsDir, id, 'workspace'), { recursive: true });
-  mkdirSync(join(projectsDir, id, 'agents'), { recursive: true });
-  mkdirSync(join(projectsDir, id, 'tickets'), { recursive: true });
+  ensureProjectDirScaffold(projectDir);
 
   db.prepare(`
     INSERT INTO projects (id, name, description, supervisor_id, workspace_path, status)
@@ -35,7 +215,9 @@ export function createProject(input: CreateProjectInput): Project {
     addProjectMember(id, input.supervisorId);
   }
 
-  return getProjectById(id)!;
+  const project = getProjectById(id)!;
+  persistProjectDocument(project);
+  return project;
 }
 
 export function getProjectById(id: string): Project | null {
@@ -60,26 +242,66 @@ export function updateProject(id: string, input: UpdateProjectInput): Project | 
   const description = input.description ?? current.description;
   const supervisorId = input.supervisorId !== undefined ? input.supervisorId : current.supervisorId;
   const status = input.status ?? current.status;
+  let workspacePath = current.workspacePath;
+
+  if (input.name && input.name !== current.name) {
+    const currentProjectDir = resolveProjectDirFromRecord(current);
+    const targetProjectDir = buildUniqueProjectDirByName(input.name, currentProjectDir);
+    if (currentProjectDir !== targetProjectDir && isPathInside(projectsDir, currentProjectDir)) {
+      ensureProjectDirScaffold(currentProjectDir);
+      renameSync(currentProjectDir, targetProjectDir);
+      workspacePath = join(targetProjectDir, 'workspace');
+    } else if (currentProjectDir !== targetProjectDir) {
+      workspacePath = join(targetProjectDir, 'workspace');
+      ensureProjectDirScaffold(targetProjectDir);
+    }
+  }
 
   db.prepare(`
-    UPDATE projects SET name = ?, description = ?, supervisor_id = ?, status = ?, updated_at = datetime('now')
+    UPDATE projects SET name = ?, description = ?, supervisor_id = ?, workspace_path = ?, status = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(name, description, supervisorId, status, id);
+  `).run(name, description, supervisorId, workspacePath, status, id);
 
   // 如果更换了主Agent，确保新主Agent是项目成员
   if (input.supervisorId && input.supervisorId !== current.supervisorId) {
     addProjectMember(id, input.supervisorId);
   }
 
-  return getProjectById(id);
+  const project = getProjectById(id);
+  if (project) {
+    persistProjectDocument(project);
+  }
+  return project;
 }
 
 export function deleteProject(id: string): boolean {
   const db = getDb();
-  // 删除关联的项目成员
-  db.prepare('DELETE FROM project_members WHERE project_id = ?').run(id);
-  const result = db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-  return result.changes > 0;
+  const project = getProjectById(id);
+  if (!project) return false;
+
+  const projectDir = resolveProjectDirFromRecord(project);
+  const ticketRows = db.prepare('SELECT id FROM tickets WHERE project_id = ?').all(id) as Array<{ id: string }>;
+  const ticketIds = ticketRows.map((row) => row.id);
+
+  const tx = db.transaction(() => {
+    for (const ticketId of ticketIds) {
+      db.prepare('DELETE FROM messages WHERE ticket_id = ?').run(ticketId);
+      db.prepare('DELETE FROM approval_requests WHERE ticket_id = ?').run(ticketId);
+    }
+
+    db.prepare('DELETE FROM tickets WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM project_members WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM agent_memories WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+  });
+
+  tx();
+
+  if (existsSync(projectDir) && isPathInside(projectsDir, projectDir)) {
+    rmSync(projectDir, { recursive: true, force: true });
+  }
+
+  return true;
 }
 
 // 项目成员管理
@@ -92,12 +314,23 @@ export function addProjectMember(projectId: string, agentId: string): ProjectMem
     VALUES (?, ?, ?)
   `).run(id, projectId, agentId);
 
-  return getProjectMember(projectId, agentId)!;
+  const member = getProjectMember(projectId, agentId)!;
+  const project = getProjectById(projectId);
+  if (project) {
+    persistProjectDocument(project);
+  }
+  return member;
 }
 
 export function removeProjectMember(projectId: string, agentId: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM project_members WHERE project_id = ? AND agent_id = ?').run(projectId, agentId);
+  if (result.changes > 0) {
+    const project = getProjectById(projectId);
+    if (project) {
+      persistProjectDocument(project);
+    }
+  }
   return result.changes > 0;
 }
 

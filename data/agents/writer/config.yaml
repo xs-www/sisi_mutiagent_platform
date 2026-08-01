@@ -13,3 +13,6 @@ tools:
 memory:
   global: true
   project: true
+description: ""
+skills: []
+instructions: {}

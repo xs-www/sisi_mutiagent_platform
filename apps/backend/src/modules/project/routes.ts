@@ -1,13 +1,44 @@
 // apps/backend/src/modules/project/routes.ts
 import { Router } from 'express';
+import { spawn } from 'child_process';
+import { mkdirSync } from 'fs';
 import {
   createProject, getProjectById, getAllProjects, updateProject, deleteProject,
-  addProjectMember, removeProjectMember, getProjectMembers, getAgentProjects
+  addProjectMember, removeProjectMember, getProjectMembers, getAgentProjects,
+  getProjectStorageDir,
 } from './repository.js';
 import { getProjectMemberProfiles } from './repository.js';
 import type { CreateProjectInput, UpdateProjectInput } from './types.js';
 
 export const projectRouter = Router();
+
+// 调用系统资源管理器打开指定文件夹（跨平台）
+function openInExplorer(targetPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      let cmd: string;
+      let args: string[];
+      if (process.platform === 'win32') {
+        cmd = 'explorer.exe';
+        args = [targetPath];
+      } else if (process.platform === 'darwin') {
+        cmd = 'open';
+        args = [targetPath];
+      } else {
+        cmd = 'xdg-open';
+        args = [targetPath];
+      }
+      // detached + unref：不阻塞请求；explorer.exe 即使成功也可能返回非零退出码，故不依赖退出码判定
+      const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+      child.unref();
+      child.on('error', (err) => reject(new Error(`无法打开文件夹: ${err.message}`)));
+      // 给启动一点时间，若无同步错误即视为成功
+      setTimeout(() => resolve(), 300);
+    } catch (e: any) {
+      reject(new Error(`无法打开文件夹: ${e.message}`));
+    }
+  });
+}
 
 // 创建项目
 projectRouter.post('/', (req, res) => {
@@ -93,6 +124,29 @@ projectRouter.delete('/:id', (req, res) => {
     res.json({ message: 'Project deleted' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// 在系统资源管理器中打开项目目录或工作空间
+projectRouter.post('/:id/open-folder', async (req, res) => {
+  try {
+    const project = getProjectById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const target = req.body?.target === 'workspace' ? 'workspace' : 'project';
+    // project: 项目根目录（projects/项目名/）；workspace: 项目工作空间（projects/项目名/workspace）
+    const targetPath = target === 'workspace' ? project.workspacePath : getProjectStorageDir(project.id);
+
+    // 确保目录存在
+    mkdirSync(targetPath, { recursive: true });
+
+    await openInExplorer(targetPath);
+    res.json({ target, path: targetPath, opened: true });
+  } catch (error: any) {
+    console.error('Error opening folder:', error);
+    res.status(500).json({ error: error.message || 'Failed to open folder' });
   }
 });
 

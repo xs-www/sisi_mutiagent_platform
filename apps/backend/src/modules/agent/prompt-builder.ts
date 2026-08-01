@@ -29,7 +29,8 @@ export function buildReActPrompt(
   ticket: Ticket,
   messages: Message[],
   reactHistory: ReActStep[],
-  projectId?: string
+  projectId?: string,
+  projectFolderDigest?: string
 ): ChatMessage[] {
   const chatMessages: ChatMessage[] = [];
 
@@ -64,9 +65,10 @@ export function buildReActPrompt(
 
   // 4. 输出格式
   systemParts.push('\n## 输出格式');
-  systemParts.push('每次回复必须严格按照以下格式：');
+  systemParts.push('每次回复必须严格按照以下格式，且每步只能输出一个 Action：');
   systemParts.push('Thought: 你的思考过程');
   systemParts.push('Action: 行动类型(参数)');
+  systemParts.push('重要：一次回复只能包含一个 Action 行。若要先写文件再完成工单，请先输出 file_write，等下一轮观察到写入成功后，再输出 complete_ticket。禁止在同一次回复中同时输出 file_write 与 complete_ticket。');
 
   // 5. 记忆
   const memoryText = formatMemoriesForPrompt(agentConfig.id, projectId);
@@ -76,6 +78,11 @@ export function buildReActPrompt(
   }
 
   if (projectId) {
+    systemParts.push('\n## 工作空间约束');
+    systemParts.push('你的工作目录是当前项目的工作空间（workspace 文件夹）。所有文件类工具（file_read / file_write / file_delete / code_search / git_operation）必须使用相对路径，禁止使用绝对路径或以 ../ 跳出工作空间。');
+    systemParts.push('当你需要产出文章、代码、文档、技能包等任何生成物时，必须通过 file_write 写入工作空间（可使用子目录组织结构），用户将从该工作空间获取这些产物。');
+    systemParts.push('你只能操控工作空间内的文件，无权访问项目目录的其他部分或系统其他位置；任何越权访问都会被工具拒绝。');
+
     const members = getProjectMemberProfiles(projectId);
     systemParts.push('\n## 当前项目成员（可分配对象）');
     if (members.length === 0) {
@@ -88,6 +95,12 @@ export function buildReActPrompt(
     }
     systemParts.push('分配工单时必须优先从以上成员中选择 assignee，且优先使用 agentId 而不是显示名。');
     systemParts.push('如果你要创建子工单，请在 create_ticket 中显式填写 assignee 字段。');
+  }
+
+  if (projectFolderDigest) {
+    systemParts.push('\n## 项目目录上下文（执行前读取）');
+    systemParts.push(projectFolderDigest);
+    systemParts.push('你必须基于以上项目目录上下文做决策，如需更细节再通过 file_read 读取具体文件。');
   }
 
   chatMessages.push({

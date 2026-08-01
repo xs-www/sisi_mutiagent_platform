@@ -17,12 +17,14 @@ import {
   Spin,
   message,
   Empty,
+  Popconfirm,
 } from 'antd';
 import { PlusOutlined, TeamOutlined, ArrowRightOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
   getProjects,
   createProject,
+  deleteProject,
   getProjectMembers,
   addProjectMember,
   removeProjectMember,
@@ -116,6 +118,21 @@ export default function Projects() {
   function handleEnterTickets(project: Project) {
     setCurrentProject(project);
     navigate(`/tickets?projectId=${project.id}`);
+  }
+
+  async function handleDeleteProject(project: Project) {
+    try {
+      await deleteProject(project.id);
+      message.success(`项目「${project.name}」已删除`);
+      setCurrentProject(null);
+      await loadProjects();
+      if (drawerProject?.id === project.id) {
+        closeDrawer();
+      }
+    } catch (error) {
+      console.error('删除项目失败:', error);
+      message.error('删除项目失败');
+    }
   }
 
   async function openMemberDrawer(project: Project) {
@@ -297,6 +314,18 @@ export default function Projects() {
                       <Button icon={<TeamOutlined />} onClick={() => openMemberDrawer(project)}>
                         成员管理
                       </Button>
+                      <Popconfirm
+                        title="删除项目"
+                        description="删除后会清空该项目下工单、消息及项目目录，且不可恢复。确认删除吗？"
+                        okText="确认删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => handleDeleteProject(project)}
+                      >
+                        <Button danger icon={<DeleteOutlined />}>
+                          删除
+                        </Button>
+                      </Popconfirm>
                     </Space>
                   </Card>
                 </Col>
