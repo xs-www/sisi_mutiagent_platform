@@ -10,7 +10,7 @@
 - “行为提示”来自静态分析，只用于快速导航，修改代码前仍应阅读源码与测试。
 
 - 扫描范围：`apps/**/*.{ts,tsx,js,jsx}`（排除依赖及构建产物）
-- 源码文件总数：90
+- 源码文件总数：97
 
 ## 目录
 
@@ -31,6 +31,8 @@
 - [apps/backend/src/modules/agent/prompt-builder.ts](./apps/backend/src/modules/agent/prompt-builder.ts.md)
 - [apps/backend/src/modules/agent/routes.ts](./apps/backend/src/modules/agent/routes.ts.md)
 - [apps/backend/src/modules/agent/types.ts](./apps/backend/src/modules/agent/types.ts.md)
+- [apps/backend/src/modules/agent/supervisor.test.ts](./apps/backend/src/modules/agent/supervisor.test.ts.md)
+- [apps/backend/src/modules/agent/supervisor.ts](./apps/backend/src/modules/agent/supervisor.ts.md)
 - [apps/backend/src/modules/apikeys/concurrency.ts](./apps/backend/src/modules/apikeys/concurrency.ts.md)
 - [apps/backend/src/modules/apikeys/index.ts](./apps/backend/src/modules/apikeys/index.ts.md)
 - [apps/backend/src/modules/apikeys/repository.ts](./apps/backend/src/modules/apikeys/repository.ts.md)
@@ -49,6 +51,11 @@
 - [apps/backend/src/modules/memory/index.ts](./apps/backend/src/modules/memory/index.ts.md)
 - [apps/backend/src/modules/memory/manager.ts](./apps/backend/src/modules/memory/manager.ts.md)
 - [apps/backend/src/modules/memory/types.ts](./apps/backend/src/modules/memory/types.ts.md)
+- [apps/backend/src/modules/memory/embedding.ts](./apps/backend/src/modules/memory/embedding.ts.md)
+- [apps/backend/src/modules/memory/service.ts](./apps/backend/src/modules/memory/service.ts.md)
+- [apps/backend/src/modules/memory/long-term.ts](./apps/backend/src/modules/memory/long-term.ts.md)
+- [apps/backend/src/modules/memory/short-term.ts](./apps/backend/src/modules/memory/short-term.ts.md)
+- [apps/backend/src/modules/memory/vector-store.ts](./apps/backend/src/modules/memory/vector-store.ts.md)
 - [apps/backend/src/modules/platform/index.ts](./apps/backend/src/modules/platform/index.ts.md)
 - [apps/backend/src/modules/platform/repository.ts](./apps/backend/src/modules/platform/repository.ts.md)
 - [apps/backend/src/modules/platform/routes.ts](./apps/backend/src/modules/platform/routes.ts.md)
