@@ -20,6 +20,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, PlusOutlined, DeleteOutlined, EditOutlined, KeyOutlined } from '@ant-design/icons';
 import { getApiKeys, createApiKey, updateApiKey, deleteApiKey } from '../api/apikeys';
+import { getProviderModels } from '../api/llm';
 import type { ApiKey } from '../types';
 import { formatDate } from '../utils';
 
@@ -35,6 +36,20 @@ const PROVIDER_COLOR: Record<string, string> = {
   bailian: 'cyan',
 };
 
+const CATEGORY_LABELS: Record<string, string> = {
+  chat: '对话补全',
+  embedding: '嵌入',
+  multimodal: '多模态',
+  coding: '代码',
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  chat: 'blue',
+  embedding: 'orange',
+  multimodal: 'green',
+  coding: 'purple',
+};
+
 export default function ApiKeys() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +57,20 @@ export default function ApiKeys() {
   const [editTarget, setEditTarget] = useState<ApiKey | null>(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const watchedProvider = Form.useWatch('provider', form);
+
+  const [providerModels, setProviderModels] = useState<Record<string, string[]>>({});
+
+  const loadProviderModels = useCallback(async () => {
+    try {
+      const data = await getProviderModels();
+      if (data && typeof data === 'object' && !('provider' in data)) {
+        setProviderModels(data as Record<string, string[]>);
+      }
+    } catch {
+      // 静默失败
+    }
+  }, []);
 
   const loadKeys = useCallback(async () => {
     setLoading(true);
@@ -57,12 +86,13 @@ export default function ApiKeys() {
 
   useEffect(() => {
     loadKeys();
-  }, [loadKeys]);
+    loadProviderModels();
+  }, [loadKeys, loadProviderModels]);
 
   const handleCreate = () => {
     setEditTarget(null);
     form.resetFields();
-    form.setFieldsValue({ provider: 'openai', maxConcurrency: 1, isActive: true });
+    form.setFieldsValue({ provider: 'openai', maxConcurrency: 1, isActive: true, categories: ['chat'], models: [] });
     setModalOpen(true);
   };
 
@@ -74,6 +104,8 @@ export default function ApiKeys() {
       apiKey: '', // 编辑时不预填脱敏key，用户重新输入
       maxConcurrency: record.maxConcurrency,
       isActive: record.isActive,
+      categories: record.categories || ['chat'],
+      models: record.models || [],
     });
     setModalOpen(true);
   };
@@ -88,6 +120,8 @@ export default function ApiKeys() {
           name: values.name,
           maxConcurrency: values.maxConcurrency,
           isActive: values.isActive,
+          categories: values.categories || ['chat'],
+          models: values.models || [],
         };
         if (values.apiKey) {
           update.apiKey = values.apiKey;
@@ -100,6 +134,8 @@ export default function ApiKeys() {
           name: values.name,
           apiKey: values.apiKey,
           maxConcurrency: values.maxConcurrency || 1,
+          categories: values.categories || ['chat'],
+          models: values.models || [],
         });
         message.success('API Key 创建成功');
       }
@@ -152,6 +188,39 @@ export default function ApiKeys() {
       render: (provider: string) => (
         <Tag color={PROVIDER_COLOR[provider] || 'default'}>{provider}</Tag>
       ),
+    },
+    {
+      title: '类别',
+      dataIndex: 'categories',
+      key: 'categories',
+      width: 200,
+      render: (categories: string[]) => (
+        <Space size={4} wrap>
+          {(categories || ['chat']).map((cat: string) => (
+            <Tag key={cat} color={CATEGORY_COLORS[cat] || 'default'}>
+              {CATEGORY_LABELS[cat] || cat}
+            </Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      title: '限定模型',
+      dataIndex: 'models',
+      key: 'models',
+      width: 200,
+      render: (models: string[]) => {
+        if (!models || models.length === 0) {
+          return <Tag color="default">不限</Tag>;
+        }
+        return (
+          <Space size={4} wrap>
+            {models.map((m: string) => (
+              <Tag key={m} color="cyan">{m}</Tag>
+            ))}
+          </Space>
+        );
+      },
     },
     {
       title: 'API Key',
@@ -273,10 +342,18 @@ export default function ApiKeys() {
         <Form
           form={form}
           layout="vertical"
-          initialValues={{ provider: 'openai', maxConcurrency: 1, isActive: true }}
+          initialValues={{ provider: 'openai', maxConcurrency: 1, isActive: true, categories: ['chat'], models: [] }}
         >
           <Form.Item name="provider" label="Provider" rules={[{ required: true, message: '请选择 Provider' }]}>
-            <Select disabled={!!editTarget}>
+            <Select
+              disabled={!!editTarget}
+              onChange={(value: string) => {
+                // 选 openai 时自动勾选 chat + embedding
+                if (value === 'openai') {
+                  form.setFieldsValue({ categories: ['chat', 'embedding'] });
+                }
+              }}
+            >
               <Select.Option value="openai">OpenAI</Select.Option>
               <Select.Option value="anthropic">Anthropic</Select.Option>
               <Select.Option value="ollama">Ollama（本地）</Select.Option>
@@ -285,6 +362,32 @@ export default function ApiKeys() {
               <Select.Option value="deepseek">DeepSeek</Select.Option>
               <Select.Option value="bailian">百炼（阿里云）</Select.Option>
             </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="categories"
+            label="类别"
+            rules={[{ required: true, message: '请选择至少一个类别' }]}
+          >
+            <Select mode="multiple" placeholder="选择此 Key 的用途">
+              <Select.Option value="chat">对话补全</Select.Option>
+              <Select.Option value="embedding">嵌入</Select.Option>
+              <Select.Option value="multimodal">多模态</Select.Option>
+              <Select.Option value="coding">代码</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="models"
+            label="限定模型"
+            extra="留空表示可用于任意模型；可输入自定义模型名"
+          >
+            <Select
+              mode="tags"
+              placeholder="选择或输入模型名（留空 = 不限）"
+              tokenSeparators={[',', ' ']}
+              options={(providerModels[watchedProvider] || []).map(m => ({ label: m, value: m }))}
+            />
           </Form.Item>
 
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>

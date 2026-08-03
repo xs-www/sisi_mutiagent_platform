@@ -11,6 +11,23 @@ function hasColumn(database: Database.Database, tableName: string, columnName: s
   return rows.some((r) => r.name === columnName);
 }
 
+function migrateApiKeysTable(database: Database.Database): void {
+  const tableExists = database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'")
+    .get();
+
+  if (!tableExists) {
+    return;
+  }
+
+  if (!hasColumn(database, 'api_keys', 'categories')) {
+    database.exec("ALTER TABLE api_keys ADD COLUMN categories TEXT NOT NULL DEFAULT '[\"chat\"]'");
+  }
+  if (!hasColumn(database, 'api_keys', 'models')) {
+    database.exec("ALTER TABLE api_keys ADD COLUMN models TEXT NOT NULL DEFAULT '[]'");
+  }
+}
+
 function migrateSkillPacksTable(database: Database.Database): void {
   const tableExists = database
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skill_packs'")
@@ -72,6 +89,7 @@ export function initDb(): Database.Database {
   }
 
   migrateSkillPacksTable(db);
+  migrateApiKeysTable(db);
 
   console.log('Database initialized successfully');
   return db;

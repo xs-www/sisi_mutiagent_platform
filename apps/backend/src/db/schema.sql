@@ -93,6 +93,16 @@ CREATE TABLE IF NOT EXISTS agent_memories (
   FOREIGN KEY (agent_id) REFERENCES agents(id),
   FOREIGN KEY (project_id) REFERENCES projects(id)
 );
+-- Agent记忆向量表（用于RAG语义检索）
+CREATE TABLE IF NOT EXISTS memory_vectors (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  vector TEXT NOT NULL,
+  content TEXT NOT NULL,
+  metadata TEXT DEFAULT '{}',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_id) REFERENCES agents(id)
+);
 
 -- API Key管理表
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -102,6 +112,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
   api_key TEXT NOT NULL,
   max_concurrency INTEGER DEFAULT 1,
   is_active INTEGER DEFAULT 1,
+  categories TEXT NOT NULL DEFAULT '["chat"]',
+  models TEXT NOT NULL DEFAULT '[]',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -160,3 +172,4 @@ CREATE INDEX IF NOT EXISTS idx_tickets_assignee ON tickets(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_messages_ticket ON messages(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_members_agent ON project_members(agent_id);
+CREATE INDEX IF NOT EXISTS idx_memory_vectors_agent ON memory_vectors(agent_id);

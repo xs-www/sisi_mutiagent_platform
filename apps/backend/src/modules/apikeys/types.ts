@@ -5,6 +5,8 @@ export interface ApiKey {
   apiKey: string;
   maxConcurrency: number;
   isActive: boolean;
+  categories: string[];
+  models: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -14,6 +16,8 @@ export interface CreateApiKeyInput {
   name: string;
   apiKey: string;
   maxConcurrency?: number;
+  categories?: string[];
+  models?: string[];
 }
 
 export interface UpdateApiKeyInput {
@@ -22,4 +26,6 @@ export interface UpdateApiKeyInput {
   apiKey?: string;
   maxConcurrency?: number;
   isActive?: boolean;
+  categories?: string[];
+  models?: string[];
 }

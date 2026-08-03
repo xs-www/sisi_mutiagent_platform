@@ -23,6 +23,8 @@ function toPublicApiKey(key: any) {
     apiKeyMasked: maskApiKey(key.apiKey),
     maxConcurrency: key.maxConcurrency,
     isActive: key.isActive,
+    categories: key.categories,
+    models: key.models,
     createdAt: key.createdAt,
     updatedAt: key.updatedAt
   };
@@ -31,11 +33,16 @@ function toPublicApiKey(key: any) {
 // POST / - 创建API Key
 apiKeyRouter.post('/', (req, res) => {
   try {
-    const { provider, name, apiKey, maxConcurrency } = req.body as CreateApiKeyInput;
+    const { provider, name, apiKey, maxConcurrency, categories, models } = req.body as CreateApiKeyInput;
     if (!provider || !name || !apiKey) {
       return res.status(400).json({ error: 'provider, name, apiKey are required' });
     }
-    const created = createApiKey({ provider, name, apiKey, maxConcurrency });
+    // 校验 categories
+    const validCategories = ['chat', 'embedding', 'multimodal', 'coding'];
+    if (categories && !categories.every((c: string) => validCategories.includes(c))) {
+      return res.status(400).json({ error: `Invalid categories. Allowed: ${validCategories.join(', ')}` });
+    }
+    const created = createApiKey({ provider, name, apiKey, maxConcurrency, categories, models });
     res.status(201).json(toPublicApiKey(created));
   } catch (e: any) {
     res.status(500).json({ error: e.message });

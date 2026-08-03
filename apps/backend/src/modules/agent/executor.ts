@@ -5,7 +5,7 @@ import { parseAgentResponse } from './action-parser.js';
 import type { ParsedAction } from './action-parser.js';
 import type { Agent } from './types.js';
 import { getTicketById, updateTicketStatus, createMessage, getMessagesByTicket, createTicket } from '../ticket/repository.js';
-import { addMemory } from '../memory/manager.js';
+import { memoryService } from '../memory/service.js';
 import type { ChatMessage } from '../llm/types.js';
 import { resolveProjectAssignee } from '../project/repository.js';
 import { dispatchChildTicketExecution } from './orchestration.js';
@@ -120,7 +120,7 @@ export async function executeAgent(
     const messages = getMessagesByTicket(ticketId);
 
     // 构建Prompt
-    const chatMessages = buildReActPrompt(
+    const chatMessages = await buildReActPrompt(
       agent.config,
       ticket,
       messages,
@@ -194,6 +194,14 @@ export async function executeAgent(
       action: actionRaw.replace('Action: ', ''),
       observation
     });
+
+    // 记录交互到记忆系统（fire-and-forget，不影响主流程）
+    memoryService.recordInteraction(
+      agent.id,
+      ticketId,
+      'agent',
+      `Thought: ${parsed.thought}\nAction: ${actionRaw.replace('Action: ', '')}\nObservation: ${observation}`
+    ).catch(err => console.error('[executor] 记忆记录失败:', err));
 
     // ==== ReAct 监督层 ====
     const supervisionResult = supervise({
