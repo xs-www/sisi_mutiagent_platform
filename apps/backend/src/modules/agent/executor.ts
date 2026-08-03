@@ -10,6 +10,7 @@ import type { ChatMessage } from '../llm/types.js';
 import { resolveProjectAssignee } from '../project/repository.js';
 import { dispatchChildTicketExecution } from './orchestration.js';
 import { buildProjectWorkspaceDigest } from '../project/repository.js';
+import { supervise } from './supervisor.js';
 import type { AgentEvent, ExecutionSignal } from './events.js';
 
 const MAX_ITERATIONS = 10; // 最大循环次数
@@ -193,6 +194,68 @@ export async function executeAgent(
       action: actionRaw.replace('Action: ', ''),
       observation
     });
+
+    // ==== ReAct 监督层 ====
+    const supervisionResult = supervise({
+      iteration: i + 1,
+      maxIterations: maxIter,
+      currentStep: steps[steps.length - 1],
+      stepHistory: steps.slice(0, -1),
+      agentRole: agent.role,
+      ticketStatus: ticket.status,
+    });
+
+    // 发出监督事件（有 observation 时写消息 + 发事件）
+    if (supervisionResult.observation) {
+      const supMsg = await createMessage({
+        ticketId,
+        senderType: 'system',
+        senderId: 'system',
+        content: `[监督] ${supervisionResult.observation}`,
+        messageType: 'observation',
+      });
+      emit({
+        type: 'supervision',
+        iteration: i + 1,
+        decision: supervisionResult.decision,
+        reason: supervisionResult.reason,
+        suggestion: supervisionResult.observation,
+        messageId: supMsg.id,
+        createdAt: supMsg.createdAt,
+        timestamp: now(),
+      } as AgentEvent);
+    }
+
+    // 根据监督决策行动
+    switch (supervisionResult.decision) {
+      case 'retry':
+        // 撤销本轮步骤，下一轮 Agent 会看到监督 Observation 并重新执行
+        steps.pop();
+        continue; // 消耗一次迭代配额，进入下一轮
+      case 'review':
+        await updateTicketStatus(ticketId, 'reviewing');
+        emit({ type: 'ticket_status', status: 'reviewing', timestamp: now() });
+        completed = false;
+        // 跳出循环（不走下面的 finish/complete_ticket 检测）
+        break;
+      case 'terminate':
+        error = supervisionResult.reason;
+        failed = true;
+        if (supervisionResult.newTicketStatus) {
+          await updateTicketStatus(ticketId, supervisionResult.newTicketStatus);
+          emit({ type: 'ticket_status', status: supervisionResult.newTicketStatus, timestamp: now() });
+        }
+        break; // 跳出循环
+      case 'continue':
+      default:
+        // 正常继续，不做干预
+        break;
+    }
+
+    // 如果监督已决定终止或审核，跳过后续完成检测
+    if (supervisionResult.decision === 'review' || supervisionResult.decision === 'terminate') {
+      break;
+    }
 
     // 检查是否完成
     if (parsed.type === 'finish') {

@@ -13,6 +13,7 @@ export type AgentEventType =
   | 'message' // 系统文本消息（如"Agent 开始处理"）
   | 'ticket_status'
   | 'child_dispatched'
+  | 'supervision' // 监督事件（continue/retry/review/terminate）
   | 'complete'
   | 'error';
 
@@ -71,12 +72,25 @@ export interface ErrorEvent extends AgentEventBase {
   iterations: number;
 }
 
+export type SupervisionDecision = 'continue' | 'retry' | 'review' | 'terminate';
+
+export interface SupervisionEvent extends AgentEventBase {
+  type: 'supervision';
+  iteration: number;
+  decision: SupervisionDecision;
+  reason: string;
+  suggestion: string;
+  messageId: string;
+  createdAt: string;
+}
+
 export type AgentEvent =
   | StartEvent
   | IterationStartEvent
   | StepEvent
   | TicketStatusEvent
   | ChildDispatchedEvent
+  | SupervisionEvent
   | CompleteEvent
   | ErrorEvent;
 

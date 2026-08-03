@@ -105,6 +105,7 @@ export type AgentEventType =
   | 'message'
   | 'ticket_status'
   | 'child_dispatched'
+  | 'supervision'
   | 'complete'
   | 'error';
 
@@ -163,12 +164,23 @@ export interface ErrorEvent extends AgentEventBase {
   iterations: number;
 }
 
+export interface SupervisionEvent extends AgentEventBase {
+  type: 'supervision';
+  iteration: number;
+  decision: 'continue' | 'retry' | 'review' | 'terminate';
+  reason: string;
+  suggestion: string;
+  messageId: string;
+  createdAt: string;
+}
+
 export type AgentEvent =
   | StartEvent
   | IterationStartEvent
   | StepEvent
   | TicketStatusEvent
   | ChildDispatchedEvent
+  | SupervisionEvent
   | CompleteEvent
   | ErrorEvent;
 

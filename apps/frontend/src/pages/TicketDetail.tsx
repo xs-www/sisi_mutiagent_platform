@@ -304,6 +304,28 @@ export default function TicketDetail() {
               case 'ticket_status':
                 setTicket((prev) => (prev ? { ...prev, status: event.status } : prev));
                 break;
+              case 'supervision': {
+                const decisionLabels: Record<string, string> = {
+                  continue: '继续',
+                  retry: '重试',
+                  review: '审核',
+                  terminate: '终止',
+                };
+                const label = decisionLabels[event.decision] || event.decision;
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: event.messageId,
+                    ticketId: id,
+                    senderType: 'system',
+                    senderId: 'system',
+                    content: `[监督·${label}] ${event.suggestion}`,
+                    messageType: 'observation',
+                    createdAt: event.createdAt,
+                  },
+                ]);
+                break;
+              }
               case 'child_dispatched':
                 childAgentIds.current[event.childTicketId] = event.assigneeId;
                 setChildTickets((prev) =>

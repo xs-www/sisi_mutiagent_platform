@@ -45,3 +45,4 @@ data/*.db-shm
 *.zip
 
 data/projects/
+data/agents/

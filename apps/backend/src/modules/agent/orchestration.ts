@@ -140,14 +140,14 @@ export async function dispatchChildTicketExecution(input: ChildTicketDispatchInp
     return { started: true, assigneeId, completed: false, error: e.message };
   }
 
-  // 回写父工单完成/失败状态
+  // 回写父工单完成/失败状态（结构化风险评估）
   if (parentTicketId) {
     if (result.completed) {
       await createMessage({
         ticketId: parentTicketId,
         senderType: 'system',
         senderId: 'system',
-        content: `✅ 子工单「${createdTicket.title}」已完成。`,
+        content: `子工单「${createdTicket.title}」已完成（${result.iterations} 轮迭代）。`,
         messageType: 'text',
       });
     } else {
@@ -155,7 +155,11 @@ export async function dispatchChildTicketExecution(input: ChildTicketDispatchInp
         ticketId: parentTicketId,
         senderType: 'system',
         senderId: 'system',
-        content: `⚠️ 子工单「${createdTicket.title}」执行未完成：${result.error ?? '未知原因'}，已标记失败，请人工确认。`,
+        content:
+          `[风险提示] 子工单「${createdTicket.title}」执行未完成\n` +
+          `- 失败原因：${result.error ?? '未知'}\n` +
+          `- 已完成迭代：${result.iterations} 轮\n` +
+          `- 建议：请评估是否需要重新指派或人工介入`,
         messageType: 'text',
       });
     }
