@@ -10,7 +10,7 @@
 - “行为提示”来自静态分析，只用于快速导航，修改代码前仍应阅读源码与测试。
 
 - 扫描范围：`apps/**/*.{ts,tsx,js,jsx}`（排除依赖及构建产物）
-- 源码文件总数：97
+- 源码文件总数：98
 
 ## 目录
 
@@ -109,6 +109,7 @@
 - [apps/frontend/src/pages/Tickets.tsx](./apps/frontend/src/pages/Tickets.tsx.md)
 - [apps/frontend/src/pages/ToolConfig.tsx](./apps/frontend/src/pages/ToolConfig.tsx.md)
 - [apps/frontend/src/pages/Tools.tsx](./apps/frontend/src/pages/Tools.tsx.md)
+- [apps/frontend/src/pages/Workflow.tsx](./apps/frontend/src/pages/Workflow.tsx.md)
 - [apps/frontend/src/router/index.tsx](./apps/frontend/src/router/index.tsx.md)
 - [apps/frontend/src/store/index.ts](./apps/frontend/src/store/index.ts.md)
 - [apps/frontend/src/types/index.ts](./apps/frontend/src/types/index.ts.md)
