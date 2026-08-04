@@ -45,4 +45,15 @@ data/*.db-shm
 *.zip
 
 data/projects/
-data/agents/
+
+# Agent 数据：只追踪内置 agent（builtin）的基础信息
+# 不追踪：内置 agent 的记忆等运行时模块、任何用户自定义 agent（custom）
+data/agents/*
+!data/agents/builtin/
+!data/agents/builtin/*/
+data/agents/builtin/*/*
+!data/agents/builtin/*/agent.yaml
+!data/agents/builtin/*/prompt.md
+!data/agents/builtin/*/tools.yaml
+!data/agents/builtin/*/input.schema.json
+!data/agents/builtin/*/output.schema.json

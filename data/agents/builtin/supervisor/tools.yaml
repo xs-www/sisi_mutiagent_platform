@@ -1,0 +1,12 @@
+# 工具白名单与审批配置
+predefined:
+  - file_read
+  - git_operation
+  - http_request
+  - code_search
+  - create_ticket
+  - get_project_members
+# Agent 级审批要求（即使平台未标记，该 Agent 调用时也需要审批）
+approvalRequired: []
+# 自定义工具名称列表
+custom: []
