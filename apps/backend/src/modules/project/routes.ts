@@ -2,13 +2,12 @@
 import { Router } from 'express';
 import { spawn } from 'child_process';
 import { mkdirSync } from 'fs';
-import {
-  createProject, getProjectById, getAllProjects, updateProject, deleteProject,
-  addProjectMember, removeProjectMember, getProjectMembers, getAgentProjects,
-  getProjectStorageDir,
-} from './repository.js';
-import { getProjectMemberProfiles } from './repository.js';
 import type { CreateProjectInput, UpdateProjectInput } from './types.js';
+
+// 动态加载 repository，避免静态类型/导出解析带来的问题
+async function getRepo() {
+  return await import('./repository.js');
+}
 
 export const projectRouter = Router();
 
@@ -41,7 +40,7 @@ function openInExplorer(targetPath: string): Promise<void> {
 }
 
 // 创建项目
-projectRouter.post('/', (req, res) => {
+projectRouter.post('/', async (req, res) => {
   try {
     const input: CreateProjectInput = {
       name: req.body.name,
@@ -53,7 +52,8 @@ projectRouter.post('/', (req, res) => {
       return res.status(400).json({ error: 'name is required' });
     }
 
-    const project = createProject(input);
+    const repo = await getRepo() as any;
+    const project = repo.createProject(input);
     res.status(201).json(project);
   } catch (error: any) {
     console.error('Error creating project:', error);
@@ -62,9 +62,10 @@ projectRouter.post('/', (req, res) => {
 });
 
 // 获取所有项目
-projectRouter.get('/', (req, res) => {
+projectRouter.get('/', async (req, res) => {
   try {
-    const projects = getAllProjects();
+    const repo = await getRepo() as any;
+    const projects = repo.getAllProjects();
     res.json(projects);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -72,9 +73,10 @@ projectRouter.get('/', (req, res) => {
 });
 
 // 获取Agent参与的所有项目（特殊路由，必须放在 /:id 之前以避免冲突）
-projectRouter.get('/agent/:agentId/projects', (req, res) => {
+projectRouter.get('/agent/:agentId/projects', async (req, res) => {
   try {
-    const projects = getAgentProjects(req.params.agentId);
+    const repo = await getRepo() as any;
+    const projects = repo.getAgentProjects(req.params.agentId);
     res.json(projects);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -82,9 +84,10 @@ projectRouter.get('/agent/:agentId/projects', (req, res) => {
 });
 
 // 获取单个项目
-projectRouter.get('/:id', (req, res) => {
+projectRouter.get('/:id', async (req, res) => {
   try {
-    const project = getProjectById(req.params.id);
+    const repo = await getRepo() as any;
+    const project = repo.getProjectById(req.params.id);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -95,7 +98,7 @@ projectRouter.get('/:id', (req, res) => {
 });
 
 // 更新项目
-projectRouter.patch('/:id', (req, res) => {
+projectRouter.patch('/:id', async (req, res) => {
   try {
     const input: UpdateProjectInput = {
       name: req.body.name,
@@ -104,7 +107,8 @@ projectRouter.patch('/:id', (req, res) => {
       status: req.body.status
     };
 
-    const project = updateProject(req.params.id, input);
+    const repo = await getRepo() as any;
+    const project = repo.updateProject(req.params.id, input);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -115,9 +119,10 @@ projectRouter.patch('/:id', (req, res) => {
 });
 
 // 删除项目
-projectRouter.delete('/:id', (req, res) => {
+projectRouter.delete('/:id', async (req, res) => {
   try {
-    const success = deleteProject(req.params.id);
+    const repo = await getRepo() as any;
+    const success = repo.deleteProject(req.params.id);
     if (!success) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -130,14 +135,15 @@ projectRouter.delete('/:id', (req, res) => {
 // 在系统资源管理器中打开项目目录或工作空间
 projectRouter.post('/:id/open-folder', async (req, res) => {
   try {
-    const project = getProjectById(req.params.id);
+    const repo = await getRepo() as any;
+    const project = repo.getProjectById(req.params.id);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
     const target = req.body?.target === 'workspace' ? 'workspace' : 'project';
     // project: 项目根目录（projects/项目名/）；workspace: 项目工作空间（projects/项目名/workspace）
-    const targetPath = target === 'workspace' ? project.workspacePath : getProjectStorageDir(project.id);
+    const targetPath = target === 'workspace' ? project.workspacePath : (await getRepo() as any).getProjectStorageDir(project.id);
 
     // 确保目录存在
     mkdirSync(targetPath, { recursive: true });
@@ -151,9 +157,10 @@ projectRouter.post('/:id/open-folder', async (req, res) => {
 });
 
 // 获取项目成员列表
-projectRouter.get('/:id/members', (req, res) => {
+projectRouter.get('/:id/members', async (req, res) => {
   try {
-    const members = getProjectMembers(req.params.id);
+    const repo = await getRepo() as any;
+    const members = repo.getProjectMembers(req.params.id);
     res.json(members);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -161,9 +168,10 @@ projectRouter.get('/:id/members', (req, res) => {
 });
 
 // 获取项目成员画像（含Agent名称/角色，供主Agent做任务分配）
-projectRouter.get('/:id/agent-group', (req, res) => {
+projectRouter.get('/:id/agent-group', async (req, res) => {
   try {
-    const members = getProjectMemberProfiles(req.params.id);
+    const repo = await getRepo() as any;
+    const members = repo.getProjectMemberProfiles(req.params.id);
     res.json(members);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -171,14 +179,15 @@ projectRouter.get('/:id/agent-group', (req, res) => {
 });
 
 // 添加Agent到项目
-projectRouter.post('/:id/members', (req, res) => {
+projectRouter.post('/:id/members', async (req, res) => {
   try {
     const agentId = req.body.agentId;
     if (!agentId) {
       return res.status(400).json({ error: 'agentId is required' });
     }
+    const repo = await getRepo() as any;
 
-    const member = addProjectMember(req.params.id, agentId);
+    const member = repo.addProjectMember(req.params.id, agentId);
     res.status(201).json(member);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -186,14 +195,33 @@ projectRouter.post('/:id/members', (req, res) => {
 });
 
 // 从项目移除Agent
-projectRouter.delete('/:id/members/:agentId', (req, res) => {
+projectRouter.delete('/:id/members/:agentId', async (req, res) => {
   try {
-    const success = removeProjectMember(req.params.id, req.params.agentId);
+    const repo = await getRepo() as any;
+    const success = repo.removeProjectMember(req.params.id, req.params.agentId);
     if (!success) {
       return res.status(404).json({ error: 'Member not found' });
     }
     res.json({ message: 'Member removed' });
   } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 添加智能推荐成员接口（由前端调用以获取推荐的 Agent 列表）
+projectRouter.post('/:id/suggest-members', async (req, res) => {
+  try {
+    const repo = await getRepo() as any;
+    const project = repo.getProjectById(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const suggest = repo.suggestProjectMembers as (projectId: string) => any[] | undefined;
+    if (!suggest) return res.status(501).json({ error: 'suggestProjectMembers not implemented' });
+
+    const suggestions = suggest(req.params.id);
+    res.json(suggestions);
+  } catch (error: any) {
+    console.error('Error suggesting members:', error);
     res.status(500).json({ error: error.message });
   }
 });

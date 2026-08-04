@@ -1,5 +1,5 @@
 import { http } from './http';
-import type { Project, ProjectMember } from '../types';
+import type { Project, ProjectMember, Agent } from '../types';
 
 export async function getProjects(): Promise<Project[]> {
   const resp = await http.get('/projects');
@@ -46,4 +46,10 @@ export async function addProjectMember(projectId: string, agentId: string): Prom
 
 export async function removeProjectMember(projectId: string, agentId: string): Promise<void> {
   await http.delete(`/projects/${projectId}/members/${agentId}`);
+}
+
+// 基于项目与主 Agent，让后端（或 supervisor agent）推荐需要加入项目的 Agent 列表
+export async function suggestProjectMembers(projectId: string): Promise<Agent[]> {
+  const resp = await http.post(`/projects/${projectId}/suggest-members`);
+  return resp.data;
 }

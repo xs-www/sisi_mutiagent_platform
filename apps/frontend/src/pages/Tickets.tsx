@@ -16,7 +16,7 @@ import {
 } from 'antd';
 import { PlusOutlined, ArrowRightOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { getTicketsByProject, createTicket, updateTicketStatus } from '../api/ticket';
-import { getProjects } from '../api/project';
+import { getProjects, getProjectMembers } from '../api/project';
 import { getAgents } from '../api/agent';
 import {
   formatDate,
@@ -61,6 +61,7 @@ export default function Tickets() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [projectMembers, setProjectMembers] = useState<Agent[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [projectsLoading, setProjectsLoading] = useState<boolean>(true);
   const [ticketsLoading, setTicketsLoading] = useState<boolean>(false);
@@ -95,6 +96,20 @@ export default function Tickets() {
       setAgents(data);
     } catch (error) {
       console.error('加载 Agent 列表失败:', error);
+    }
+  }
+
+  async function loadProjectMembers(projectId: string) {
+    try {
+      const members = await getProjectMembers(projectId);
+      // members 是 ProjectMember[]，需要把 agentId 映射为 Agent 对象
+      // 调用后端时前端没有 Agent 的完整信息，这里取当前 agents 列表中匹配的 Agent
+      const memberAgents = members
+        .map((m) => agents.find((a) => a.id === m.agentId))
+        .filter(Boolean) as Agent[];
+      setProjectMembers(memberAgents);
+    } catch (error) {
+      console.error('加载项目成员失败:', error);
     }
   }
 
@@ -195,6 +210,13 @@ export default function Tickets() {
       setSubmitting(false);
     }
   }
+
+  // 当打开新建工单弹窗或切换 project 时，加载该项目成员
+  useEffect(() => {
+    if (modalOpen && projectIdFromUrl) {
+      void loadProjectMembers(projectIdFromUrl);
+    }
+  }, [modalOpen, projectIdFromUrl, agents]);
 
   const ticketsByStatus = useMemo(() => {
     const map: Record<TicketStatus, Ticket[]> = {
@@ -419,8 +441,13 @@ export default function Tickets() {
               allowClear
               showSearch
               optionFilterProp="label"
-              loading={agents.length === 0}
-              options={agents.map((a) => ({ label: a.name, value: a.id }))}
+              loading={projectMembers.length === 0 && agents.length === 0}
+              // 优先展示项目成员列表，如无成员则回退到平台 Agent 列表
+              options={
+                projectMembers.length > 0
+                  ? projectMembers.map((a) => ({ label: a.name, value: a.id }))
+                  : agents.map((a) => ({ label: a.name, value: a.id }))
+              }
             />
           </Form.Item>
         </Form>

@@ -4,7 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'fs';
 import { dirname, join, resolve, sep } from 'path';
 import { config } from '../../config/index.js';
-import { getAgentFromDb } from '../agent/loader.js';
+import { getAgentFromDb, getAllAgentsFromDb } from '../agent/loader.js';
+import type { Agent } from '../agent/types.js';
 import type { Project, ProjectMember, CreateProjectInput, UpdateProjectInput } from './types.js';
 
 export interface ProjectMemberProfile extends ProjectMember {
@@ -322,18 +323,6 @@ export function addProjectMember(projectId: string, agentId: string): ProjectMem
   return member;
 }
 
-export function removeProjectMember(projectId: string, agentId: string): boolean {
-  const db = getDb();
-  const result = db.prepare('DELETE FROM project_members WHERE project_id = ? AND agent_id = ?').run(projectId, agentId);
-  if (result.changes > 0) {
-    const project = getProjectById(projectId);
-    if (project) {
-      persistProjectDocument(project);
-    }
-  }
-  return result.changes > 0;
-}
-
 export function getProjectMember(projectId: string, agentId: string): ProjectMember | null {
   const db = getDb();
   const row = db.prepare('SELECT * FROM project_members WHERE project_id = ? AND agent_id = ?').get(projectId, agentId) as any;
@@ -359,6 +348,44 @@ export function getProjectMemberProfiles(projectId: string): ProjectMemberProfil
       isSupervisor: agent?.role === 'supervisor',
     };
   });
+}
+
+/**
+ * 基于项目上下文推荐应添加到项目的 Agent 列表（排除已在项目中的 Agent）。
+ * 当前实现为启发式规则：优先包含项目 supervisor（若存在且未加入），
+ * 然后按角色优先（supervisor 优先）和名称排序返回若干候选。
+ */
+export function suggestProjectMembers(projectId: string, maxSuggestions = 6): Agent[] {
+  const project = getProjectById(projectId);
+  const members = getProjectMembers(projectId);
+  const memberIds = new Set(members.map(m => m.agentId));
+
+  const allAgents = getAllAgentsFromDb();
+
+  const suggestions: Agent[] = [];
+
+  if (project?.supervisorId) {
+    const sup = allAgents.find(a => a.id === project.supervisorId);
+    if (sup && !memberIds.has(sup.id)) {
+      suggestions.push(sup);
+    }
+  }
+
+  const rest = allAgents
+    .filter(a => !memberIds.has(a.id) && a.id !== project?.supervisorId)
+    .sort((a, b) => {
+      const ra = a.role === 'supervisor' ? 0 : 1;
+      const rb = b.role === 'supervisor' ? 0 : 1;
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name);
+    });
+
+  for (const a of rest) {
+    if (suggestions.length >= maxSuggestions) break;
+    suggestions.push(a);
+  }
+
+  return suggestions.slice(0, maxSuggestions);
 }
 
 export function resolveProjectAssignee(projectId: string, assigneeHint?: string): ProjectMemberProfile | null {

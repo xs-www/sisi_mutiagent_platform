@@ -47,3 +47,6 @@ data/*.db-shm
 
 data/projects/
 data/agents/
+
+
+tickets/
