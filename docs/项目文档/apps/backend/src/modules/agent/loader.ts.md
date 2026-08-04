@@ -2,7 +2,7 @@
 
 - 源文件：`apps/backend/src/modules/agent/loader.ts`
 - 文件职责：实现 Agent 配置的加载、迁移、写入与数据库同步，支持内置（builtin）与用户自定义（custom）双命名空间及新文件格式（agent.yaml / prompt.md / tools.yaml）。
-- 具名函数/方法：16 个
+- 具名函数/方法：17 个
 
 ## 导出常量与类型
 
@@ -81,7 +81,14 @@
 - 功能：遍历 builtin 与 custom 两个命名空间，加载全部 Agent 配置。
 - 行为提示：访问文件系统。
 
-### `syncAgentsToDb`（第 290 行）
+### `getBuiltinAgentIds`（第 291 行）
+
+- 类型：函数
+- 签名：`export function getBuiltinAgentIds(): string[]`
+- 功能：扫描 `data/agents/builtin/` 目录，返回所有内置 Agent 的 ID 列表（用于项目创建时自动加入成员）。
+- 行为提示：访问文件系统；目录不存在时返回空数组。
+
+### `syncAgentsToDb`（第 301 行）
 
 - 类型：函数
 - 签名：`export function syncAgentsToDb(): void`

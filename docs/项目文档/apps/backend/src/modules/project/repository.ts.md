@@ -115,8 +115,8 @@
 
 - 类型：函数
 - 签名：`export function createProject(input: CreateProjectInput): Project`
-- 功能：创建或注册 project 数据。
-- 行为提示：读写数据库。
+- 功能：创建项目。未指定 supervisorId 时默认为 `supervisor`（监理 agent）；所有内置 Agent 自动加入项目成员。
+- 行为提示：读写数据库；访问文件系统。
 
 ### `getProjectById`（第 223 行）
 

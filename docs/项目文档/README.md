@@ -10,7 +10,7 @@
 - “行为提示”来自静态分析，只用于快速导航，修改代码前仍应阅读源码与测试。
 
 - 扫描范围：`apps/**/*.{ts,tsx,js,jsx}`（排除依赖及构建产物）
-- 源码文件总数：98
+- 源码文件总数：99
 
 ## 目录
 
@@ -68,6 +68,7 @@
 - [apps/backend/src/modules/skill/repository.ts](./apps/backend/src/modules/skill/repository.ts.md)
 - [apps/backend/src/modules/skill/routes.ts](./apps/backend/src/modules/skill/routes.ts.md)
 - [apps/backend/src/modules/skill/types.ts](./apps/backend/src/modules/skill/types.ts.md)
+- [apps/backend/src/modules/skill/validator.ts](./apps/backend/src/modules/skill/validator.ts.md)
 - [apps/backend/src/modules/ticket/index.ts](./apps/backend/src/modules/ticket/index.ts.md)
 - [apps/backend/src/modules/ticket/repository.ts](./apps/backend/src/modules/ticket/repository.ts.md)
 - [apps/backend/src/modules/ticket/routes.ts](./apps/backend/src/modules/ticket/routes.ts.md)

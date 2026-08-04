@@ -1,0 +1,9 @@
+predefined:
+  - file_read
+  - file_write
+  - code_search
+  - shell_execute
+  - git_operation
+approvalRequired:
+  - shell_execute
+custom: []

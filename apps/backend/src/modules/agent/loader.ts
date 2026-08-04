@@ -287,6 +287,17 @@ export function loadAllAgents(): AgentConfig[] {
   return agents;
 }
 
+// 获取所有内置 Agent 的 ID 列表（用于项目创建时自动加入成员）
+export function getBuiltinAgentIds(): string[] {
+  const builtinDir = getNamespaceDir('builtin');
+  if (!existsSync(builtinDir)) {
+    return [];
+  }
+  return readdirSync(builtinDir, { withFileTypes: true })
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => dirent.name);
+}
+
 export function syncAgentsToDb(): void {
   const db = getDb();
   const configs = loadAllAgents();

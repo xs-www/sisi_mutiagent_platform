@@ -1,0 +1,4 @@
+predefined:
+  - file_read
+  - file_write
+approvalRequired: []

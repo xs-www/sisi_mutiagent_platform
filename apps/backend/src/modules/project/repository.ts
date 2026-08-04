@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'fs';
 import { dirname, join, resolve, sep } from 'path';
 import { config } from '../../config/index.js';
-import { getAgentFromDb } from '../agent/loader.js';
+import { getAgentFromDb, getBuiltinAgentIds } from '../agent/loader.js';
 import type { Project, ProjectMember, CreateProjectInput, UpdateProjectInput } from './types.js';
 
 export interface ProjectMemberProfile extends ProjectMember {
@@ -205,14 +205,17 @@ export function createProject(input: CreateProjectInput): Project {
   // 创建项目目录结构
   ensureProjectDirScaffold(projectDir);
 
+  // 默认主 Agent 为监理 agent（supervisor）
+  const supervisorId = input.supervisorId || 'supervisor';
+
   db.prepare(`
     INSERT INTO projects (id, name, description, supervisor_id, workspace_path, status)
     VALUES (?, ?, ?, ?, ?, 'active')
-  `).run(id, input.name, input.description || '', input.supervisorId || null, workspacePath);
+  `).run(id, input.name, input.description || '', supervisorId, workspacePath);
 
-  // 如果指定了主Agent，自动加入项目
-  if (input.supervisorId) {
-    addProjectMember(id, input.supervisorId);
+  // 所有内置 Agent 自动加入项目成员
+  for (const agentId of getBuiltinAgentIds()) {
+    addProjectMember(id, agentId);
   }
 
   const project = getProjectById(id)!;

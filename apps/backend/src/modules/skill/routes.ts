@@ -12,6 +12,7 @@ import {
   getSkillsDirPath,
 } from './repository.js';
 import type { CreateSkillPackInput, UpdateSkillPackInput } from './types.js';
+import { inspectSkillPackage, SkillValidationError } from './validator.js';
 import { config } from '../../config/index.js';
 
 export const skillRouter = Router();
@@ -25,14 +26,23 @@ function sanitizeFileBaseName(name: string): string {
   return sanitized || `skill-${Date.now()}`;
 }
 
-function buildSkillFileMetadata(fileName: string, buffer: Buffer): Pick<CreateSkillPackInput, 'id' | 'fileName' | 'filePath' | 'fileExt' | 'fileSize' | 'importSource'> {
+function buildSkillFileMetadata(
+  fileName: string,
+  buffer: Buffer
+): Pick<CreateSkillPackInput, 'id' | 'fileName' | 'filePath' | 'fileExt' | 'fileSize' | 'importSource'> & {
+  skillName: string;
+  skillDescription: string;
+} {
   const ext = extname(fileName).toLowerCase();
-  if (ext !== '.zip' && ext !== '.skill') {
-    throw new Error('仅支持 .zip 或 .skill 文件');
+  if (ext !== '.zip') {
+    throw new SkillValidationError('仅支持 .zip 技能包，.skill 格式已废弃，禁止上传');
   }
 
+  // 预检验技能包：必须包含 SKILL.md，并读取其中的名称与描述
+  const skillInfo = inspectSkillPackage(buffer);
+
   const id = uuidv4();
-  const fileExt = ext.slice(1) as 'zip' | 'skill';
+  const fileExt = 'zip' as const;
   const originalBaseName = basename(fileName, ext);
   const safeBaseName = sanitizeFileBaseName(originalBaseName);
   const safeExt = `.${fileExt}`;
@@ -55,6 +65,8 @@ function buildSkillFileMetadata(fileName: string, buffer: Buffer): Pick<CreateSk
     fileExt,
     fileSize: buffer.byteLength,
     importSource: 'upload',
+    skillName: skillInfo.name,
+    skillDescription: skillInfo.description,
   };
 }
 
@@ -96,7 +108,7 @@ skillRouter.get('/:id/download', (req, res) => {
   }
 });
 
-// 上传导入 Skill 包（.zip/.skill）
+// 上传导入 Skill 包（仅支持 .zip，须包含 SKILL.md）
 skillRouter.post('/import', upload.single('file'), (req, res) => {
   try {
     if (!req.file) {
@@ -105,15 +117,17 @@ skillRouter.post('/import', upload.single('file'), (req, res) => {
 
     const metadata = buildSkillFileMetadata(req.file.originalname, req.file.buffer);
     const body = req.body as { name?: string; description?: string; category?: string };
-    const name = body.name?.trim() || req.file.originalname.replace(/\.(zip|skill)$/i, '');
+    // 名称与描述优先取自 SKILL.md，其次为表单传入值，最后回退到文件名
+    const name = metadata.skillName || body.name?.trim() || metadata.fileName.replace(/\.zip$/i, '');
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
     }
+    const description = metadata.skillDescription || body.description?.trim() || '';
 
     const created = createSkillPack({
       id: metadata.id,
       name,
-      description: body.description || '',
+      description,
       category: body.category || 'general',
       fileName: metadata.fileName,
       filePath: metadata.filePath,
@@ -124,39 +138,16 @@ skillRouter.post('/import', upload.single('file'), (req, res) => {
 
     res.status(201).json(created);
   } catch (e: any) {
+    if (e instanceof SkillValidationError) {
+      return res.status(400).json({ error: e.message });
+    }
     res.status(500).json({ error: e.message });
   }
 });
 
-// 兼容旧接口：提交 content 文本时自动落盘为 .skill 文件
+// 旧接口已废弃：仅支持上传 .zip 技能包，不再创建 .skill 文件
 skillRouter.post('/', (req, res) => {
-  try {
-    const body = req.body as any;
-    const { name, description, category, content } = body;
-    if (!name) {
-      return res.status(400).json({ error: 'name is required' });
-    }
-
-    if (typeof content === 'string' && content.length > 0) {
-      const metadata = buildSkillFileMetadata(`${name}.skill`, Buffer.from(content, 'utf-8'));
-      const created = createSkillPack({
-        id: metadata.id,
-        name,
-        description,
-        category,
-        fileName: metadata.fileName,
-        filePath: metadata.filePath,
-        fileExt: metadata.fileExt,
-        fileSize: metadata.fileSize,
-        importSource: 'legacy',
-      });
-      return res.status(201).json(created);
-    }
-
-    return res.status(400).json({ error: '请使用 /api/skills/import 上传 .zip 或 .skill 文件' });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
+  res.status(400).json({ error: '仅支持上传 .zip 技能包，请使用 /api/skills/import 上传' });
 });
 
 // 更新 Skill 包元数据
