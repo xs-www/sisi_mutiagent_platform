@@ -98,12 +98,66 @@ if [ -s "$ENV_DIR/nvm/nvm.sh" ]; then
   NVM_PREAMBLE="export NVM_DIR='$ENV_DIR/nvm'; source \"\$NVM_DIR/nvm.sh\"; nvm use default --silent; "
 fi
 
-info "Starting backend in a new Terminal window..."
-osascript -e "tell application \"Terminal\" to do script \"${NVM_PREAMBLE}cd '$ROOT/apps/backend' && npm run dev\""
+# Robust launcher: try to open Terminal.app via osascript; if that fails, start
+# the service in the background with nohup and redirect logs. This avoids
+# brittle quoting issues and works on headless or limited environments.
+open_or_launch() {
+  local label="$1"
+  local workdir="$2"
+  local cmd="$3"
+  local logfile="$4"
 
-info "Starting frontend in a new Terminal window..."
-osascript -e "tell application \"Terminal\" to do script \"${NVM_PREAMBLE}cd '$ROOT/apps/frontend' && npm run dev\""
+  # Try macOS Terminal via AppleScript if available
+  if command -v osascript &>/dev/null; then
+    # Escape backslashes and double quotes for safe embedding in AppleScript
+    local escaped_cmd
+    escaped_cmd=$(printf '%s' "$cmd" | sed -e 's/\\/\\\\/g' -e 's/"/\\\"/g')
+
+    if osascript -e "tell application \"Terminal\" to do script \"${escaped_cmd}\"" 2>/dev/null; then
+      info "$label launched in Terminal.app"
+      return 0
+    else
+      warn "osascript failed to open Terminal.app for $label — falling back to background launch"
+    fi
+  else
+    warn "osascript not found — falling back to background launch for $label"
+  fi
+
+  # Ensure logs dir exists
+  mkdir -p "$ENV_DIR/logs"
+
+  # Create a small wrapper script to ensure the command runs with the proper
+  # environment and quoting. Using a wrapper avoids complex remote quoting.
+  local wrapper="$ENV_DIR/logs/${label// /_}.sh"
+  cat > "$wrapper" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+# Load local nvm if present
+if [ -s "$ENV_DIR/nvm/nvm.sh" ]; then
+  export NVM_DIR="$ENV_DIR/nvm"
+  # shellcheck source=/dev/null
+  source "$ENV_DIR/nvm/nvm.sh"
+  nvm use default --silent || true
+fi
+cd "$workdir"
+exec bash -lc "$cmd"
+EOF
+  chmod +x "$wrapper"
+
+  nohup "$wrapper" > "$ENV_DIR/logs/$logfile" 2>&1 &
+  local pid=$!
+  info "$label started in background (pid $pid). Logs: $ENV_DIR/logs/$logfile"
+}
+
+# Ensure logs directory exists for fallback runs
+mkdir -p "$ENV_DIR/logs"
+
+info "Starting backend in a new Terminal window (or background)..."
+open_or_launch "Backend" "$ROOT/apps/backend" "${NVM_PREAMBLE}cd '$ROOT/apps/backend' && npm run dev" "backend.log"
+
+info "Starting frontend in a new Terminal window (or background)..."
+open_or_launch "Frontend" "$ROOT/apps/frontend" "${NVM_PREAMBLE}cd '$ROOT/apps/frontend' && npm run dev" "frontend.log"
 
 echo ""
 echo "[DONE] Backend (port 3000) and frontend (port 5173) have been launched."
-echo "[TIP]  Close each Terminal window to stop the service."
+echo "[TIP]  Close each Terminal window to stop the service (or kill the background pids)."
