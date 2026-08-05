@@ -19,7 +19,7 @@ import {
   Empty,
   Popconfirm,
 } from 'antd';
-import { PlusOutlined, TeamOutlined, ArrowRightOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, TeamOutlined, ArrowRightOutlined, DeleteOutlined, InfoCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
   getProjects,
@@ -28,6 +28,7 @@ import {
   getProjectMembers,
   addProjectMember,
   removeProjectMember,
+  generateProjectAi,
 } from '../api/project';
 import { getAgents } from '../api/agent';
 import { useGlobalStore } from '../store';
@@ -51,6 +52,7 @@ export default function Projects() {
 
   const [modalOpen, setModalOpen] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [aiGenerating, setAiGenerating] = useState<boolean>(false);
   const [form] = Form.useForm();
 
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
@@ -64,6 +66,39 @@ export default function Projects() {
     const m = new Map<string, Agent>();
     agents.forEach((a) => m.set(a.id, a));
     return m;
+  }, [agents]);
+
+  // 默认主 Agent：内置的监理 Agent（supervisor）
+  const supervisorAgentId = useMemo(() => {
+    return (
+      agents.find((a) => a.isBuiltin && (a.id === 'supervisor' || a.config?.role === 'supervisor'))?.id ||
+      agents.find((a) => a.id === 'supervisor')?.id
+    );
+  }, [agents]);
+
+  // 默认加入项目的内置 Agent
+  const builtinAgentIds = useMemo(
+    () => agents.filter((a) => a.isBuiltin).map((a) => a.id),
+    [agents],
+  );
+
+  // 添加 Agent 下拉：内置 / 自定义 分组展示
+  const groupedAgentOptions = useMemo(() => {
+    const groups = [
+      {
+        label: '内置 Agent',
+        options: agents
+          .filter((a) => a.isBuiltin)
+          .map((a) => ({ label: a.name, value: a.id })),
+      },
+      {
+        label: '自定义 Agent',
+        options: agents
+          .filter((a) => !a.isBuiltin)
+          .map((a) => ({ label: a.name, value: a.id })),
+      },
+    ];
+    return groups.filter((g) => g.options.length > 0);
   }, [agents]);
 
   async function loadProjects() {
@@ -93,15 +128,34 @@ export default function Projects() {
     loadAgents();
   }, []);
 
+  // 弹窗打开后设置默认选中：主 Agent=项目监理、添加 Agent=全部内置 Agent。
+  // 使用 afterOpenChange 确保 Form.Item 已完全挂载到表单存储。
+  function handleModalAfterOpenChange(open: boolean) {
+    if (open && agents.length > 0) {
+      form.setFieldsValue({
+        supervisorId: supervisorAgentId,
+        agentIds: builtinAgentIds,
+      });
+    }
+  }
+
   async function handleCreateProject() {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await createProject({
+      const project = await createProject({
         name: values.name?.trim(),
         description: values.description?.trim() || undefined,
         supervisorId: values.supervisorId || undefined,
       });
+      // 后端已自动加入所有内置 Agent；这里补充加入用户选择的自定义 Agent 及主 Agent
+      const builtinIds = new Set(agents.filter((a) => a.isBuiltin).map((a) => a.id));
+      const memberIds = new Set<string>(values.agentIds ?? []);
+      if (values.supervisorId) memberIds.add(values.supervisorId);
+      for (const agentId of memberIds) {
+        if (builtinIds.has(agentId)) continue;
+        await addProjectMember(project.id, agentId);
+      }
       message.success('项目创建成功');
       setModalOpen(false);
       form.resetFields();
@@ -112,6 +166,39 @@ export default function Projects() {
       message.error('创建项目失败');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // AI 根据项目名称生成描述，并将推荐的 Agent 并入"添加 Agent"选择
+  async function handleAiGenerate() {
+    try {
+      await form.validateFields(['name']);
+    } catch {
+      return; // 表单校验失败，错误提示已由表单展示
+    }
+    const name = form.getFieldValue('name')?.trim();
+    setAiGenerating(true);
+    try {
+      const result = await generateProjectAi({
+        name,
+        agents: agents.map((a) => ({
+          id: a.id,
+          name: a.name,
+          role: a.config?.role ?? 'specialist',
+          description: a.config?.description,
+        })),
+      });
+      form.setFieldValue('description', result.description);
+      const current = (form.getFieldValue('agentIds') ?? []) as string[];
+      form.setFieldValue(
+        'agentIds',
+        Array.from(new Set([...current, ...result.recommendedAgentIds])),
+      );
+      message.success('AI 已生成项目描述并推荐 Agent');
+    } catch (error) {
+      console.error('AI 生成项目建议失败:', error);
+    } finally {
+      setAiGenerating(false);
     }
   }
 
@@ -346,13 +433,14 @@ export default function Projects() {
         confirmLoading={submitting}
         okText="创建"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
         maskClosable={false}
+        afterOpenChange={handleModalAfterOpenChange}
       >
-        <Form form={form} layout="vertical" preserve={false}>
+        <Form form={form} layout="vertical">
           <Form.Item
             name="name"
-            label="名称"
+            label="项目名称"
             rules={[
               { required: true, message: '请输入项目名称' },
               { whitespace: true, message: '名称不能为空白字符' },
@@ -360,15 +448,52 @@ export default function Projects() {
           >
             <Input placeholder="请输入项目名称" maxLength={100} />
           </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={4} placeholder="项目描述（可选）" maxLength={1000} showCount />
+          <Form.Item
+            name="description"
+            label={
+              <Space size={4}>
+                项目描述
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<ThunderboltOutlined />}
+                  loading={aiGenerating}
+                  onClick={handleAiGenerate}
+                  style={{ padding: 0, height: 'auto' }}
+                >
+                  AI 生成
+                </Button>
+              </Space>
+            }
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder="项目描述（可手动填写，或点击 AI 生成）"
+              maxLength={1000}
+              showCount
+            />
           </Form.Item>
           <Form.Item name="supervisorId" label="主 Agent">
             <Select
-              placeholder="请选择主 Agent（可选）"
-              allowClear
+              placeholder="请选择主 Agent"
+              showSearch
+              optionFilterProp="label"
               loading={agents.length === 0}
               options={agents.map((a) => ({ label: a.name, value: a.id }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="agentIds"
+            label="添加 Agent"
+            extra="默认已包含全部内置 Agent，可额外选择自定义 Agent"
+          >
+            <Select
+              mode="multiple"
+              placeholder="请选择要加入项目的 Agent"
+              showSearch
+              optionFilterProp="label"
+              loading={agents.length === 0}
+              options={groupedAgentOptions}
             />
           </Form.Item>
         </Form>

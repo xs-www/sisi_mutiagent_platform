@@ -20,6 +20,20 @@ export async function createProject(body: {
   return resp.data;
 }
 
+export interface ProjectAiSuggestion {
+  description: string;
+  recommendedAgentIds: string[];
+}
+
+// AI 根据项目名称生成项目描述，并推荐应加入项目的 Agent
+export async function generateProjectAi(body: {
+  name: string;
+  agents: Array<{ id: string; name: string; role?: string; description?: string }>;
+}): Promise<ProjectAiSuggestion> {
+  const resp = await http.post('/projects/generate-ai', body);
+  return resp.data;
+}
+
 export async function updateProject(id: string, body: Partial<Project>): Promise<Project> {
   const resp = await http.patch(`/projects/${id}`, body);
   return resp.data;

@@ -1,6 +1,8 @@
 # 工具白名单与审批配置
 predefined:
   - file_read
+  - list_files
+  - file_exists
   - git_operation
   - http_request
   - code_search

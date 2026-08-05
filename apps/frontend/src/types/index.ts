@@ -40,7 +40,7 @@ export interface Agent {
   id: string;
   name: string;
   config: AgentConfig;
-  isBuiltIn: boolean;
+  isBuiltin: boolean;
 }
 
 export type ProjectStatus = 'active' | 'archived';

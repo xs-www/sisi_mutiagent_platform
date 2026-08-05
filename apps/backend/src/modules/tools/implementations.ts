@@ -110,6 +110,69 @@ export function toolFileDelete(params: Record<string, any>, workspacePath: strin
   }
 }
 
+export function toolListFiles(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const subPath = params.path as string | undefined;
+
+  let targetPath = workspacePath;
+  if (subPath) {
+    const safe = resolveSafePath(workspacePath, subPath);
+    if (safe.error) return { success: false, output: '', error: safe.error, durationMs: Date.now() - startTime };
+    if (!safe.path) return { success: false, output: '', error: '路径解析失败', durationMs: Date.now() - startTime };
+    targetPath = safe.path;
+  }
+
+  if (!existsSync(targetPath)) {
+    return { success: false, output: '', error: `目录不存在: ${subPath || '.'}`, durationMs: Date.now() - startTime };
+  }
+
+  if (!statSync(targetPath).isDirectory()) {
+    return { success: false, output: '', error: `${subPath || '.'} 不是目录，请改用 file_read 读取`, durationMs: Date.now() - startTime };
+  }
+
+  const entries = readdirSync(targetPath, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (entries.length === 0) {
+    return { success: true, output: `目录为空: ${subPath || '.'}`, durationMs: Date.now() - startTime };
+  }
+
+  const lines = entries.map((entry) => {
+    const full = join(targetPath, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        return `[目录] ${entry.name}/`;
+      }
+      return `[文件] ${entry.name} (${statSync(full).size}B)`;
+    } catch {
+      return entry.isDirectory() ? `[目录] ${entry.name}/` : `[文件] ${entry.name}`;
+    }
+  });
+
+  return {
+    success: true,
+    output: `目录内容 (${subPath || '.'}):\n${lines.join('\n')}`,
+    durationMs: Date.now() - startTime,
+  };
+}
+
+export function toolFileExists(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
+  const startTime = Date.now();
+  const userPath = params.path as string;
+  if (!userPath) return { success: false, output: '', error: '缺少必填参数: path', durationMs: Date.now() - startTime };
+
+  const safe = resolveSafePath(workspacePath, userPath);
+  if (safe.error) return { success: false, output: '', error: safe.error, durationMs: Date.now() - startTime };
+  if (!safe.path) return { success: false, output: '', error: '路径解析失败', durationMs: Date.now() - startTime };
+
+  if (!existsSync(safe.path)) {
+    return { success: true, output: `路径不存在: ${userPath}`, durationMs: Date.now() - startTime };
+  }
+
+  const type = statSync(safe.path).isDirectory() ? '目录' : '文件';
+  return { success: true, output: `路径存在: ${userPath}（${type}）`, durationMs: Date.now() - startTime };
+}
+
 // ========== Shell工具 ==========
 
 export function toolShellExecute(params: Record<string, any>, workspacePath: string): ToolExecutionResult {
@@ -259,7 +322,11 @@ export function toolGitOperation(params: Record<string, any>, workspacePath: str
   if (!command) return { success: false, output: '', error: '缺少必填参数: command' };
 
   // 安全Git命令白名单
-  const safeCommands = ['status', 'log', 'add', 'diff', 'branch', 'tag', 'show', 'fetch', 'remote', 'config', 'rev-parse'];
+  const safeCommands = [
+    'status', 'log', 'add', 'diff', 'branch', 'tag', 'show', 'fetch', 'remote', 'config', 'rev-parse',
+    // 只读查询类：用于定位文件、查看历史，无需审批
+    'ls-files', 'ls-tree', 'describe', 'blame', 'grep', 'rev-list', 'cat-file',
+  ];
   const commandLower = command.toLowerCase();
   if (!safeCommands.includes(commandLower) && !commandLower.startsWith('checkout')) {
     // commit, push, pull 需要审批，此处已通过审批流程到达实现层，放行但警告
@@ -370,6 +437,8 @@ export async function executeToolImplementation(
     case 'file_read': return toolFileRead(params, workspacePath);
     case 'file_write': return toolFileWrite(params, workspacePath);
     case 'file_delete': return toolFileDelete(params, workspacePath);
+    case 'list_files': return toolListFiles(params, workspacePath);
+    case 'file_exists': return toolFileExists(params, workspacePath);
     case 'shell_execute': return toolShellExecute(params, workspacePath);
     case 'http_request': return await toolHttpRequest(params, workspacePath);
     case 'code_search': return toolCodeSearch(params, workspacePath);

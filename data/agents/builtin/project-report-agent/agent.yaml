@@ -1,5 +1,5 @@
 id: project-report-agent
-name: 项目报告撰写Agent
+name: 项目报告撰写智能体
 description: 根据项目需求、拆解文档、里程碑及实际完成情况，撰写专业、准确、结构化的工作报告。
 role: specialist
 prompt:

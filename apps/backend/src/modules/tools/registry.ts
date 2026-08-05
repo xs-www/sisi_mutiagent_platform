@@ -39,6 +39,24 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition> = {
       { name: 'path', type: 'string', required: true, description: '相对于项目工作目录的文件路径' }
     ]
   },
+  list_files: {
+    name: 'list_files',
+    description: '列出项目工作目录中的文件与子目录（不递归）',
+    category: 'file',
+    approvalRequired: false,
+    params: [
+      { name: 'path', type: 'string', required: false, description: '相对于项目工作目录的子路径，默认列出工作目录根' }
+    ]
+  },
+  file_exists: {
+    name: 'file_exists',
+    description: '检查项目工作目录中的路径是否存在，并返回其类型（文件/目录）',
+    category: 'file',
+    approvalRequired: false,
+    params: [
+      { name: 'path', type: 'string', required: true, description: '相对于项目工作目录的文件或目录路径' }
+    ]
+  },
   shell_execute: {
     name: 'shell_execute',
     description: '在项目工作目录中执行Shell命令（敏感操作，需审批）',

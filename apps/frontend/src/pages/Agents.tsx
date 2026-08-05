@@ -239,7 +239,7 @@ export default function Agents() {
       render: (text: string, record: Agent) => (
         <Space>
           <span>{text}</span>
-          {record.isBuiltIn && <Tag color="purple">内置</Tag>}
+          {record.isBuiltin && <Tag color="purple">内置</Tag>}
         </Space>
       ),
     },
@@ -491,7 +491,7 @@ function AgentDetail({ agent, skillPacks }: { agent: Agent; skillPacks: SkillPac
           )}
         </Descriptions.Item>
         <Descriptions.Item label="内置">
-          {agent.isBuiltIn ? '是' : '否'}
+          {agent.isBuiltin ? '是' : '否'}
         </Descriptions.Item>
       </Descriptions>
 

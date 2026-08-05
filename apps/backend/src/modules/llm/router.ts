@@ -4,6 +4,7 @@ import { chatOpenAICompatible, chatAnthropic, PROVIDER_MODELS } from './external
 import { config } from '../../config/index.js';
 import type { ChatMessage, ChatResponse } from './types.js';
 import { getActivePlatformModels } from '../platform/repository.js';
+import { recordTokenUsage } from '../usage/repository.js';
 
 type CandidateModel = {
   provider: string;
@@ -12,7 +13,7 @@ type CandidateModel = {
   source: 'platform' | 'apikey-implicit';
 };
 
-function filterKeysByModel(keys: Array<{ id: string; maxConcurrency: number; models: string[] }>, modelName: string) {
+function filterKeysByModel<T extends { id: string; maxConcurrency: number; models: string[] }>(keys: T[], modelName: string): T[] {
   // 如果 Key 的 models 为空，则可用于任意模型；否则只用于列表中的模型
   return keys.filter(k => k.models.length === 0 || k.models.includes(modelName));
 }
@@ -93,10 +94,12 @@ async function buildPreferredCandidates(): Promise<CandidateModel[]> {
   return [...extAvailable, ...extBusyOrUnavailable, ...local];
 }
 
-// 从平台模型池按优先级依次尝试，直到成功
+// 从平台模型池按优先级依次尝试，直到成功。
+// meta 携带归属上下文（项目/工单/Agent），用于 token 用量落库；不传时记为平台级消耗。
 export async function chatWithPlatformModels(
   messages: ChatMessage[],
-  options?: { temperature?: number }
+  options?: { temperature?: number },
+  meta?: { projectId?: string; ticketId?: string; agentId?: string }
 ): Promise<ChatResponse> {
   const models = await buildPreferredCandidates();
 
@@ -110,6 +113,24 @@ export async function chatWithPlatformModels(
     try {
       console.log(`[LLM] 尝试模型: ${model.provider}/${model.modelName} (priority=${model.priority}, source=${model.source})`);
       const result = await callModel(model.provider, model.modelName, messages, options);
+
+      // 记录 token 用量（含缓存命中/未命中/输出细分），写库失败不影响调用主流程
+      if (result.usage) {
+        try {
+          recordTokenUsage({
+            projectId: meta?.projectId,
+            ticketId: meta?.ticketId,
+            agentId: meta?.agentId,
+            provider: model.provider,
+            model: model.modelName,
+            purpose: 'chat',
+            ...result.usage,
+          });
+        } catch (recordErr) {
+          console.error('[Usage] 记录 token 用量失败:', recordErr);
+        }
+      }
+
       return result;
     } catch (error: any) {
       console.warn(`[LLM] 模型 ${model.provider}/${model.modelName} 调用失败: ${error.message}`);

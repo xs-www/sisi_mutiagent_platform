@@ -1,7 +1,7 @@
 # action-parser.test.ts
 
 - 源文件：`apps/backend/src/modules/agent/action-parser.test.ts`
-- 文件职责：测试文件：验证相邻模块的核心行为与边界情况。
+- 文件职责：测试文件：验证相邻模块的核心行为与边界情况。本次新增 invalid 解析用例：空响应、无 Action 行、无法识别的 Action、空工具名 `tool_call()` 均解析为 `invalid`（而非 `finish`），防止"空操作=完成"的假完成。
 - 具名函数/方法：0 个
 
 ## 函数与方法

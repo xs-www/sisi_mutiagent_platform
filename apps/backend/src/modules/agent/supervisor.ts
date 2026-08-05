@@ -23,6 +23,8 @@ export interface SupervisionContext {
   stepHistory: ReActStep[];
   agentRole: AgentRole;
   ticketStatus: TicketStatus;
+  /** 本轮 Action 的解析类型（finish/complete_ticket/tool_call/message/create_ticket/invalid） */
+  parsedActionType?: string;
   childResults?: ChildExecutionSummary[];
 }
 
@@ -38,6 +40,11 @@ export interface SupervisionResult {
  * 当前使用确定性规则，不依赖 LLM 调用。
  */
 export function supervise(ctx: SupervisionContext): SupervisionResult {
+  // 0. 检测 Action 无法解析（invalid）—— 必须在自然完成检测之前，
+  //    防止"空 Action / 解析失败被当作 finish"导致的假完成
+  const invalidParseCheck = checkInvalidParse(ctx);
+  if (invalidParseCheck) return invalidParseCheck;
+
   // 1. 检测无效 finish（空 thought）—— 必须在自然完成检测之前
   const invalidFinishCheck = checkInvalidFinish(ctx);
   if (invalidFinishCheck) return invalidFinishCheck;
@@ -77,6 +84,16 @@ export function supervise(ctx: SupervisionContext): SupervisionResult {
 }
 
 // ---- 规则实现 ----
+
+function checkInvalidParse(ctx: SupervisionContext): SupervisionResult | null {
+  if (ctx.parsedActionType !== 'invalid') return null;
+
+  return {
+    decision: 'retry',
+    observation: '无法解析有效的 Action。请严格按照 Thought/Action 格式重新输出，且每步只能输出一个 Action，禁止输出空内容。',
+    reason: 'Action 解析失败 (invalid)',
+  };
+}
 
 function isNaturalCompletion(step: ReActStep): boolean {
   const action = step.action.trim();

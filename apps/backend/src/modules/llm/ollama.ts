@@ -55,7 +55,15 @@ export async function chat(
     options: options?.temperature ? { temperature: options.temperature } : undefined
   }, { timeout: 120000 }); // 2分钟超时
 
-  return response.data;
+  const data = response.data;
+  // Ollama 无缓存概念：全部输入按未命中统计，输出单独统计
+  data.usage = {
+    inputCacheHitTokens: 0,
+    inputCacheMissTokens: Number(data.prompt_eval_count) || 0,
+    cacheWriteTokens: 0,
+    outputTokens: Number(data.eval_count) || 0,
+  };
+  return data;
 }
 
 export async function* chatStream(

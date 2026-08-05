@@ -1,6 +1,6 @@
 // apps/backend/src/modules/agent/action-parser.ts
 
-export type ActionType = 'tool_call' | 'message' | 'create_ticket' | 'complete_ticket' | 'finish';
+export type ActionType = 'tool_call' | 'message' | 'create_ticket' | 'complete_ticket' | 'finish' | 'invalid';
 
 export interface ParsedAction {
   type: ActionType;
@@ -95,7 +95,7 @@ function parseAction(actionStr: string): Omit<ParsedAction, 'thought' | 'raw'> {
 
     if (!toolName) {
       console.warn(`Parsed empty tool name from action: ${actionStr}`);
-      return { type: 'finish' };
+      return { type: 'invalid' };
     }
 
     return { type: 'tool_call', toolName, toolParams };
@@ -124,9 +124,9 @@ function parseAction(actionStr: string): Omit<ParsedAction, 'thought' | 'raw'> {
     };
   }
 
-  // 无法解析，默认为finish
-  console.warn(`Unable to parse action: ${actionStr}, defaulting to finish`);
-  return { type: 'finish' };
+  // 无法解析：返回 invalid，禁止默认当作 finish 导致"空操作=完成"的假完成
+  console.warn(`Unable to parse action: ${actionStr}, marking as invalid`);
+  return { type: 'invalid' };
 }
 
 // 简单参数解析：处理 key: value 和 key=value 格式

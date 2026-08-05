@@ -10,6 +10,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   file_read: '读取文件内容。参数: { path: string }',
   file_write: '写入文件。参数: { path: string, content: string }',
   file_delete: '删除文件。参数: { path: string }（需审批）',
+  list_files: '列出工作目录中的文件与子目录（不递归）。参数: { path?: string }，省略 path 时列出工作目录根',
+  file_exists: '检查路径是否存在并返回类型。参数: { path: string }',
   shell_execute: '执行Shell命令。参数: { command: string }（需审批）',
   http_request: '发送HTTP请求。参数: { url: string, method: string, body?: string }',
   code_search: '搜索代码库。参数: { query: string, path?: string }',
