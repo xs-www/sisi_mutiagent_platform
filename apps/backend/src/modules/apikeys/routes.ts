@@ -10,9 +10,14 @@ export const apiKeyRouter = Router();
 const VALID_CATEGORIES = ['chat', 'embedding', 'multimodal', 'coding'];
 
 // 校验 categories 是否为合法值，返回错误信息（null 表示合法）
-function validateCategories(categories?: string[]): string | null {
-  if (categories && !categories.every((c) => VALID_CATEGORIES.includes(c))) {
-    return `Invalid categories. Allowed: ${VALID_CATEGORIES.join(', ')}`;
+function validateCategories(categories?: unknown): string | null {
+  if (categories !== undefined) {
+    if (!Array.isArray(categories)) {
+      return 'categories must be an array';
+    }
+    if (!categories.every((c) => VALID_CATEGORIES.includes(c))) {
+      return `Invalid categories. Allowed: ${VALID_CATEGORIES.join(', ')}`;
+    }
   }
   return null;
 }
@@ -31,7 +36,7 @@ function toPublicApiKey(key: any) {
     id: key.id,
     provider: key.provider,
     name: key.name,
-    apiKeyMasked: maskApiKey(key.apiKey),
+    apiKey: maskApiKey(key.apiKey),
     maxConcurrency: key.maxConcurrency,
     isActive: key.isActive,
     categories: key.categories,

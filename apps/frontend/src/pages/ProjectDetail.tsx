@@ -491,7 +491,7 @@ export default function ProjectDetail() {
         onOk={handleEditSave}
         confirmLoading={editSaving}
         width={520}
-        destroyOnHidden
+        destroyOnClose
         okText="保存"
         cancelText="取消"
       >

@@ -32,6 +32,11 @@ export class LongTermMemoryManager {
     try {
       const embedding = await this.embeddingProvider.embedText(content);
 
+      if (!embedding || embedding.length === 0) {
+        // Embedding not available (no API key configured), skip long-term storage
+        return { id: '', existed: false };
+      }
+
       const existingRecords = this.vectorStore.getByAgent(agentId);
       for (const record of existingRecords) {
         const similarity = cosineSimilarity(embedding, record.vector);
@@ -64,6 +69,12 @@ export class LongTermMemoryManager {
   ): Promise<SearchResult[]> {
     try {
       const queryEmbedding = await this.embeddingProvider.embedText(query);
+
+      if (!queryEmbedding || queryEmbedding.length === 0) {
+        // Embedding not available (no API key configured), return empty results
+        return [];
+      }
+
       const results = this.vectorStore.search(
         agentId,
         queryEmbedding,
