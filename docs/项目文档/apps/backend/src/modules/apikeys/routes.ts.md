@@ -2,18 +2,26 @@
 
 - 源文件：`apps/backend/src/modules/apikeys/routes.ts`
 - 文件职责：HTTP 路由层：解析请求、调用业务能力并构造响应。
-- 具名函数/方法：2 个
+- 具名函数/方法：3 个
 
 ## 函数与方法
 
-### `maskApiKey`（第 10 行）
+### `maskApiKey`（第 21 行）
 
 - 类型：函数
 - 签名：`function maskApiKey(key: string): string`
 - 功能：实现 mask api key 相关的业务逻辑。
 - 行为提示：未识别到显著的外部副作用。
 
-### `toPublicApiKey`（第 18 行）
+### `validateCategories`（第 13 行）
+
+- 类型：函数
+- 签名：`function validateCategories(categories?: string[]): string | null`
+- 功能：校验 categories 数组中的每个值是否属于合法分类（chat/embedding/multimodal/coding）。合法返回 `null`，非法返回错误信息字符串。
+- 行为提示：未识别到显著的外部副作用。
+- 说明（本次改动）：提取公共分类校验逻辑，创建（POST）与更新（PATCH）路由共用。
+
+### `toPublicApiKey`（第 29 行）
 
 - 类型：函数
 - 签名：`function toPublicApiKey(key: any)`

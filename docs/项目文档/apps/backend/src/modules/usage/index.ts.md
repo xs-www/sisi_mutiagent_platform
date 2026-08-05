@@ -7,7 +7,10 @@
 ## 导出说明
 
 - `export * from './types.js'`：Token 用量相关类型；
+- `export * from './repository.js'`：Token 用量仓库方法（recordTokenUsage、getProjectUsageSummary、getAllProjectsUsageSummary）；
 - `export { usageRouter } from './routes.js'`：HTTP 路由。
+
+> 说明（本次改动）：新增导出 `./repository.js`，使其他模块可通过 `../usage/index.js` 使用 `recordTokenUsage` 等仓库方法，无需直接深入内部路径。
 
 ---
 

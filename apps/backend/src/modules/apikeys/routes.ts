@@ -6,6 +6,17 @@ import type { CreateApiKeyInput, UpdateApiKeyInput } from './types.js';
 
 export const apiKeyRouter = Router();
 
+// 合法的分类值
+const VALID_CATEGORIES = ['chat', 'embedding', 'multimodal', 'coding'];
+
+// 校验 categories 是否为合法值，返回错误信息（null 表示合法）
+function validateCategories(categories?: string[]): string | null {
+  if (categories && !categories.every((c) => VALID_CATEGORIES.includes(c))) {
+    return `Invalid categories. Allowed: ${VALID_CATEGORIES.join(', ')}`;
+  }
+  return null;
+}
+
 // 脱敏函数：只显示前8位和后4位
 function maskApiKey(key: string): string {
   if (key.length <= 12) {
@@ -38,9 +49,9 @@ apiKeyRouter.post('/', (req, res) => {
       return res.status(400).json({ error: 'provider, name, apiKey are required' });
     }
     // 校验 categories
-    const validCategories = ['chat', 'embedding', 'multimodal', 'coding'];
-    if (categories && !categories.every((c: string) => validCategories.includes(c))) {
-      return res.status(400).json({ error: `Invalid categories. Allowed: ${validCategories.join(', ')}` });
+    const categoryError = validateCategories(categories);
+    if (categoryError) {
+      return res.status(400).json({ error: categoryError });
     }
     const created = createApiKey({ provider, name, apiKey, maxConcurrency, categories, models });
     res.status(201).json(toPublicApiKey(created));
@@ -74,6 +85,11 @@ apiKeyRouter.get('/:id', (req, res) => {
 apiKeyRouter.patch('/:id', (req, res) => {
   try {
     const input = req.body as UpdateApiKeyInput;
+    // 校验 categories（与创建时保持一致）
+    const categoryError = validateCategories(input.categories);
+    if (categoryError) {
+      return res.status(400).json({ error: categoryError });
+    }
     const updated = updateApiKey(req.params.id, input);
     if (!updated) return res.status(404).json({ error: 'API Key not found' });
     res.json(toPublicApiKey(updated));
