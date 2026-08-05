@@ -2,7 +2,7 @@
 
 - 源文件：`apps/backend/src/modules/project/repository.ts`
 - 文件职责：数据仓储层：封装持久化数据的查询和变更操作。
-- 具名函数/方法：29 个
+- 具名函数/方法：30 个
 
 ## 函数与方法
 
@@ -20,12 +20,21 @@
 - 功能：检查 path inside 是否满足约束。
 - 行为提示：未识别到显著的外部副作用。
 
-### `ensureProjectDirScaffold`（第 29 行）
+### `ensureGitInit`（第 30 行）
+
+- 类型：函数
+- 签名：`function ensureGitInit(workspacePath: string): void`
+- 功能：若工作空间尚无 `.git`，执行 `git init` 使其成为 git 仓库，保证 `git_operation` 工具可用。
+- 行为提示：访问文件系统；执行外部命令。
+- 边缘条件：已存在 `.git` 时跳过；`git init` 失败仅告警，不阻塞项目创建。
+
+### `ensureProjectDirScaffold`（第 46 行）
 
 - 类型：函数
 - 签名：`function ensureProjectDirScaffold(projectDir: string): void`
-- 功能：实现 ensure project dir scaffold 相关的业务逻辑。
+- 功能：创建项目目录骨架（workspace/agents/tickets），并对 workspace 执行 `git init`。
 - 行为提示：访问文件系统。
+- 本次改动：新增调用 `ensureGitInit(workspacePath)`。启动时 `migrateProjectStorageDirsToNameBased` 会遍历所有已有项目调用本函数，因此既有项目的 workspace 也能自动补齐 `.git`。
 
 ### `sanitizeName`（第 35 行）
 
@@ -115,8 +124,8 @@
 
 - 类型：函数
 - 签名：`export function createProject(input: CreateProjectInput): Project`
-- 功能：创建或注册 project 数据。
-- 行为提示：读写数据库。
+- 功能：创建项目。未指定 supervisorId 时默认为 `supervisor`（监理 agent）；所有内置 Agent 自动加入项目成员。
+- 行为提示：读写数据库；访问文件系统。
 
 ### `getProjectById`（第 223 行）
 

@@ -48,6 +48,8 @@ sisi_mutiagent_platform
 │   └── frontend/         # React 18 + Vite 前端（端口 5173）
 ├── data/
 │   ├── agents/           # Agent 配置目录（每个 Agent 一个子目录）
+│   │   ├── builtin/      # 内置 Agent（基础信息由 git 追踪）
+│   │   └── custom/       # 用户自定义 Agent（git 不追踪）
 │   ├── platform.db       # SQLite 数据库（运行时生成）
 │   └── platform.yaml     # 平台全局配置（可选）
 └── doc/                  # 开发文档
@@ -84,7 +86,15 @@ Agent 是平台的执行单元，分为两种角色：
 | `supervisor` | 监理 Agent，负责需求分析、任务拆解、子工单分配 |
 | `specialist` | 专家 Agent，执行具体任务（写代码、搜索、调用 API 等）|
 
-每个 Agent 由一份 YAML 配置文件描述，存放在 `data/agents/<agent-id>/config.yaml`。
+每个 Agent 由一个目录描述，目录下文件拆分为：
+
+| 文件 | 说明 |
+|------|------|
+| `agent.yaml` | 基础信息：id、name、role、memory、skills、instructions、prompt.personality |
+| `prompt.md` | 长 system prompt（文本文件，便于维护长提示词） |
+| `tools.yaml` | 工具白名单与审批配置 |
+
+内置 Agent 存放在 `data/agents/builtin/<agent-id>/`，用户自定义 Agent 存放在 `data/agents/custom/<agent-id>/`。git 只追踪内置 Agent 的基础信息文件。
 
 ### 工单（Ticket）
 
@@ -123,35 +133,59 @@ Agent 执行时绑定到具体工单，所有思考、行动、观察都以消�
 ### 步骤一：创建配置目录
 
 ```bash
-mkdir -p data/agents/my-agent
+mkdir -p data/agents/custom/my-agent
 ```
 
 ### 步骤二：编写配置文件
 
-创建 `data/agents/my-agent/config.yaml`：
+创建 `data/agents/custom/my-agent/agent.yaml`（基础信息）：
 
 ```yaml
+# ==================== 基础信息 ====================
+# 唯一标识符（必填，与目录名保持一致，只允许字母、数字、连字符）
 id: my-agent
+# 显示名称（必填）
 name: 我的第一个 Agent
+# 职责描述（可选）
+description: 负责代码审查
+# 角色（必填）：supervisor | specialist
 role: specialist
+# Prompt 附加配置（长 system prompt 存放在 prompt.md）
 prompt:
-  system: |
-    你是一个代码审查专家。
-    收到工单后，你会：
-    1. 阅读指定文件的代码
-    2. 分析代码质量和潜在问题
-    3. 将审查报告写入指定文件
   personality: 严谨、细致、善于发现问题
-tools:
-  predefined:
-    - file_read
-    - file_write
-    - code_search
-  approvalRequired: []
+# 记忆配置
 memory:
   global: true
   project: true
+# 关联的 Skill 包 ID 列表
 skills: []
+# 指令定义（可选）：goal / constraints / methods / outputFormat / refusalStrategy
+instructions:
+  goal: 审查代码质量并输出报告
+```
+
+创建 `data/agents/custom/my-agent/prompt.md`（长 system prompt）：
+
+```markdown
+你是一个代码审查专家。
+收到工单后，你会：
+1. 阅读指定文件的代码
+2. 分析代码质量和潜在问题
+3. 将审查报告写入指定文件
+```
+
+创建 `data/agents/custom/my-agent/tools.yaml`（工具配置）：
+
+```yaml
+# 预定义工具白名单
+predefined:
+  - file_read
+  - file_write
+  - code_search
+# Agent 级审批要求（可选）
+approvalRequired: []
+# 自定义工具名称列表（可选）
+custom: []
 ```
 
 ### 步骤三：重启后端服务（同步 Agent 到数据库）
@@ -161,7 +195,7 @@ cd apps/backend
 npm run dev
 ```
 
-启动时会自动调用 `syncAgentsToDb()` 将 `data/agents/` 下所有 Agent 同步到数据库。
+启动时会自动调用 `syncAgentsToDb()` 将 `data/agents/builtin/` 与 `data/agents/custom/` 下所有 Agent 同步到数据库。
 
 ### 步骤四：验证 Agent 已加载
 
@@ -199,9 +233,18 @@ curl -X POST http://localhost:3000/api/agents/my-agent/execute \
 
 ## 4. Agent 配置文件详解
 
-配置文件为 YAML 格式，路径：`data/agents/<id>/config.yaml`
+Agent 目录下文件拆分为三个部分（示例路径 `data/agents/custom/<id>/`）：
 
-### 完整字段说明
+```text
+<agent-id>/
+├── agent.yaml       # 基础信息（id、name、role、memory、skills、instructions、prompt.personality）
+├── prompt.md        # 长 system prompt（纯文本，便于维护长提示词）
+└── tools.yaml       # 工具白名单与审批配置
+```
+
+> 可选文件：`input.schema.json` / `output.schema.json`（输入输出 Schema）、`assets/`（资源文件，git 不追踪）。旧格式 `config.yaml` / `<id>.agent.md` 仍可被读取，系统会自动迁移为新格式。
+
+### 4.1 agent.yaml — 基础信息
 
 ```yaml
 # ==================== 基本信息 ====================
@@ -213,49 +256,19 @@ id: my-agent
 # Agent 显示名称（必填）
 name: 我的 Agent
 
+# 职责描述（可选）
+description: 负责代码审查
+
 # Agent 角色（必填）
 # 可选值：supervisor | specialist
 role: specialist
 
-# ==================== Prompt 配置 ====================
+# ==================== Prompt 附加配置 ====================
 prompt:
-  # 系统提示词（必填）
-  # 决定 Agent 的行为模式与职责范围
-  # 支持多行文本，使用 | 或 > 折叠块
-  system: |
-    你是一个XXX专家。
-    你的职责是：
-    1. ...
-    2. ...
-
   # 性格特征（可选）
   # 注入在 system prompt 之后，补充 Agent 个性
+  # 长 system prompt 请写在 prompt.md
   personality: 严谨、耐心、务实
-
-# ==================== 工具配置 ====================
-tools:
-  # 预定义工具白名单（必填）
-  # 只有列在此处的工具，Agent 才有权限调用
-  predefined:
-    - file_read
-    - file_write
-    - file_delete        # 需审批
-    - shell_execute      # 需审批
-    - http_request
-    - code_search
-    - git_operation
-    - get_project_members
-    - create_ticket
-
-  # 自定义工具（可选）
-  # 从平台注册的自定义工具名称列表
-  custom: []
-
-  # Agent 级审批要求（可选）
-  # 在此列出的工具，即使平台未标记为 approvalRequired，
-  # 该 Agent 调用时也需要审批
-  approvalRequired:
-    - shell_execute
 
 # ==================== 记忆配置 ====================
 memory:
@@ -268,6 +281,52 @@ memory:
 # 关联的 Skill 包 ID 列表
 # Skill 包目前为资源文件管理，后续版本将支持能力注入
 skills: []
+
+# ==================== 指令定义（可选）====================
+instructions:
+  goal: Agent 的核心目标
+  constraints: 工作约束与限制条件
+  methods: 推荐的工作方法与流程
+  outputFormat: 期望的输出格式说明
+  refusalStrategy: 遇到不合理请求时的拒绝策略
+```
+
+### 4.2 prompt.md — 长 system prompt
+
+`prompt.md` 的全文即为 Agent 的 system prompt，决定 Agent 的行为模式与职责范围：
+
+```markdown
+你是一个XXX专家。
+你的职责是：
+1. ...
+2. ...
+```
+
+### 4.3 tools.yaml — 工具配置
+
+```yaml
+# 预定义工具白名单（必填）
+# 只有列在此处的工具，Agent 才有权限调用
+predefined:
+  - file_read
+  - file_write
+  - file_delete        # 需审批
+  - shell_execute      # 需审批
+  - http_request
+  - code_search
+  - git_operation
+  - get_project_members
+  - create_ticket
+
+# 自定义工具（可选）
+# 从平台注册的自定义工具名称列表
+custom: []
+
+# Agent 级审批要求（可选）
+# 在此列出的工具，即使平台未标记为 approvalRequired，
+# 该 Agent 调用时也需要审批
+approvalRequired:
+  - shell_execute
 ```
 
 ### 配置更新方式
@@ -799,30 +858,40 @@ curl -X POST http://localhost:3000/api/projects/<projectId>/members \
 3. **specialist** 执行子工单，完成后调用 `complete_ticket()` 等待审核
 4. **supervisor** 汇总结果，向用户汇报
 
-**supervisor 配置示例：**
+**supervisor 配置示例（`data/agents/builtin/supervisor/`）：**
+
+`agent.yaml`：
 
 ```yaml
 id: supervisor
 name: 项目监理
 role: supervisor
 prompt:
-  system: |
-    你是项目监理Agent，负责协调整个团队。
-    收到需求后，你需要：
-    1. 调用 get_project_members 获取当前团队成员
-    2. 将需求拆解为独立子任务
-    3. 用 create_ticket 为每个子任务创建工单，并分配给合适成员
-    4. 用 finish() 结束本轮（子工单会由对应成员处理）
   personality: 善于沟通、逻辑清晰、分工明确
-tools:
-  predefined:
-    - get_project_members
-    - create_ticket
-    - file_read
-    - http_request
 memory:
   global: true
   project: true
+```
+
+`prompt.md`：
+
+```markdown
+你是项目监理Agent，负责协调整个团队。
+收到需求后，你需要：
+1. 调用 get_project_members 获取当前团队成员
+2. 将需求拆解为独立子任务
+3. 用 create_ticket 为每个子任务创建工单，并分配给合适成员
+4. 用 finish() 结束本轮（子工单会由对应成员处理）
+```
+
+`tools.yaml`：
+
+```yaml
+predefined:
+  - get_project_members
+  - create_ticket
+  - file_read
+  - http_request
 ```
 
 ### 11.3 Prompt 中的成员信息

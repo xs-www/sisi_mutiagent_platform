@@ -2,8 +2,10 @@
 import { getDb } from '../../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
 import { dirname, join, resolve, sep } from 'path';
 import { config } from '../../config/index.js';
+import { getAgentFromDb, getBuiltinAgentIds } from '../agent/loader.js';
 import { getAgentFromDb, getAllAgentsFromDb } from '../agent/loader.js';
 import type { Agent } from '../agent/types.js';
 import type { Project, ProjectMember, CreateProjectInput, UpdateProjectInput } from './types.js';
@@ -27,10 +29,28 @@ function isPathInside(parentDir: string, candidatePath: string): boolean {
   return candidate === parent || candidate.startsWith(parent + sep.toLowerCase());
 }
 
+function ensureGitInit(workspacePath: string): void {
+  // 使工作空间成为 git 仓库，保证 git_operation 工具可用（失败不阻塞项目创建）
+  if (existsSync(join(workspacePath, '.git'))) return;
+  try {
+    execSync('git init', {
+      cwd: workspacePath,
+      timeout: 10000,
+      encoding: 'utf-8',
+      windowsHide: true,
+      stdio: 'pipe',
+    });
+  } catch (err: any) {
+    console.warn('[project] git init 失败（不影响项目创建）:', err.message);
+  }
+}
+
 function ensureProjectDirScaffold(projectDir: string): void {
-  mkdirSync(join(projectDir, 'workspace'), { recursive: true });
+  const workspacePath = join(projectDir, 'workspace');
+  mkdirSync(workspacePath, { recursive: true });
   mkdirSync(join(projectDir, 'agents'), { recursive: true });
   mkdirSync(join(projectDir, 'tickets'), { recursive: true });
+  ensureGitInit(workspacePath);
 }
 
 function sanitizeName(name: string): string {
@@ -206,14 +226,17 @@ export function createProject(input: CreateProjectInput): Project {
   // 创建项目目录结构
   ensureProjectDirScaffold(projectDir);
 
+  // 默认主 Agent 为监理 agent（supervisor）
+  const supervisorId = input.supervisorId || 'supervisor';
+
   db.prepare(`
     INSERT INTO projects (id, name, description, supervisor_id, workspace_path, status)
     VALUES (?, ?, ?, ?, ?, 'active')
-  `).run(id, input.name, input.description || '', input.supervisorId || null, workspacePath);
+  `).run(id, input.name, input.description || '', supervisorId, workspacePath);
 
-  // 如果指定了主Agent，自动加入项目
-  if (input.supervisorId) {
-    addProjectMember(id, input.supervisorId);
+  // 所有内置 Agent 自动加入项目成员
+  for (const agentId of getBuiltinAgentIds()) {
+    addProjectMember(id, agentId);
   }
 
   const project = getProjectById(id)!;

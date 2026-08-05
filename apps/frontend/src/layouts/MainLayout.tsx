@@ -1,7 +1,6 @@
 import { Layout, Menu, theme } from 'antd';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import {
-  DashboardOutlined,
+import { DashboardOutlined,
   TeamOutlined,
   FolderOpenOutlined,
   OrderedListOutlined,
@@ -11,6 +10,7 @@ import {
   KeyOutlined,
   CloudServerOutlined,
   RocketOutlined,
+  BranchesOutlined,
 } from '@ant-design/icons';
 
 const { Header, Sider, Content } = Layout;
@@ -26,6 +26,7 @@ const menuItems = [
   { key: '/api-keys', icon: <KeyOutlined />, label: <Link to="/api-keys">API Key 管理</Link> },
   { key: '/platform-settings', icon: <CloudServerOutlined />, label: <Link to="/platform-settings">平台模型配置</Link> },
   { key: '/approvals', icon: <SafetyOutlined />, label: <Link to="/approvals">审批中心</Link> },
+  { key: '/workflow', icon: <BranchesOutlined />, label: <Link to="/workflow">工作流</Link> },
 ];
 
 function getSelectedKey(pathname: string): string {

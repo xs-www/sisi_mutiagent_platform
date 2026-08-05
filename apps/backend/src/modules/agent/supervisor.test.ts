@@ -102,6 +102,26 @@ describe('supervise', () => {
     expect(result.decision).toBe('retry');
   });
 
+  // === Action 解析失败（invalid）===
+  it('解析类型为 invalid 时返回 retry，禁止当作完成', () => {
+    const ctx = makeCtx({
+      // 模拟空 Action：LLM 输出没有 Action 行，解析为 invalid
+      currentStep: makeStep('', '', '执行结束'),
+      parsedActionType: 'invalid',
+    });
+    const result = supervise(ctx);
+    expect(result.decision).toBe('retry');
+    expect(result.observation).toContain('无法解析');
+  });
+
+  it('未标记 parsedActionType 时 invalid 规则不误伤正常工具调用', () => {
+    const ctx = makeCtx({
+      currentStep: makeStep('读取文件', 'tool_call(read_file, {"path":"test.txt"})', '[工具 read_file 执行成功]'),
+    });
+    const result = supervise(ctx);
+    expect(result.decision).toBe('continue');
+  });
+
   it('finish 有 thought 不触发 retry', () => {
     // 注意：finish 首先被 isNaturalCompletion 捕获，返回 continue
     const ctx = makeCtx({

@@ -2,6 +2,14 @@
 import { Router } from 'express';
 import { spawn } from 'child_process';
 import { mkdirSync } from 'fs';
+import {
+  createProject, getProjectById, getAllProjects, updateProject, deleteProject,
+  addProjectMember, removeProjectMember, getProjectMembers, getAgentProjects,
+  getProjectStorageDir,
+} from './repository.js';
+import { getProjectMemberProfiles } from './repository.js';
+import { chatWithPlatformModels } from '../llm/router.js';
+import type { ChatMessage } from '../llm/types.js';
 import type { CreateProjectInput, UpdateProjectInput } from './types.js';
 
 // 动态加载 repository，避免静态类型/导出解析带来的问题
@@ -58,6 +66,77 @@ projectRouter.post('/', async (req, res) => {
   } catch (error: any) {
     console.error('Error creating project:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// 解析模型返回的 JSON（容错 markdown 代码块与前后多余文字）
+function parseAiJson(content: string): any {
+  let text = content.trim();
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    text = fenceMatch[1].trim();
+  }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    text = text.slice(start, end + 1);
+  }
+  return JSON.parse(text);
+}
+
+// AI 生成项目描述，并推荐应加入项目的 Agent
+projectRouter.post('/generate-ai', async (req, res) => {
+  try {
+    const { name, agents } = req.body as {
+      name?: string;
+      agents?: Array<{ id?: string; name?: string; role?: string; description?: string }>;
+    };
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    const agentList = (Array.isArray(agents) ? agents : [])
+      .filter((a) => a && typeof a.id === 'string' && a.id && typeof a.name === 'string' && a.name)
+      .map((a) => `- ${a.id}（${a.name}${a.description ? `：${a.description}` : ''}）`)
+      .join('\n') || '（当前无可选 Agent）';
+
+    const systemPrompt = `你是多智能体协作平台的项目规划助手。根据用户提供的项目名称和可选 Agent 列表：
+1. 生成一段专业的中文项目描述（80-200 字，说明项目目标、范围与预期产出）；
+2. 从 Agent 列表中挑选你认为该项目需要加入的 Agent。
+
+严格输出一个 JSON 对象，不要包含任何解释文字或 markdown 标记：
+{"description": "项目描述", "recommendedAgentIds": ["agent id", ...]}
+
+要求：
+- description 必须为非空字符串；
+- recommendedAgentIds 只能从给定 Agent 列表的 id 中选取，可根据项目类型选择合适的数量，若无从选择则返回空数组 []。`;
+
+    const userPrompt = `项目名称：${name.trim()}
+可选 Agent 列表：
+${agentList}
+
+请根据项目名称与可用 Agent 输出 JSON。`;
+
+    const messages: ChatMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+
+    const response = await chatWithPlatformModels(messages, { temperature: 0.7 });
+    const parsed = parseAiJson(response.message.content);
+    const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+    const validIds = new Set((Array.isArray(agents) ? agents : [])
+      .map((a) => a?.id)
+      .filter((id): id is string => typeof id === 'string' && !!id));
+    const recommendedAgentIds = Array.isArray(parsed.recommendedAgentIds)
+      ? parsed.recommendedAgentIds.filter((id: unknown) => typeof id === 'string' && validIds.has(id))
+      : [];
+
+    res.json({ description, recommendedAgentIds });
+  } catch (error: any) {
+    console.error('Error generating project AI suggestion:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate project AI suggestion' });
   }
 });
 

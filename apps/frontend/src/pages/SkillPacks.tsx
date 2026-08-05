@@ -144,21 +144,18 @@ export default function SkillPacks() {
       const values = await importForm.validateFields();
       const file = fileList[0]?.originFileObj as File | undefined;
       if (!file) {
-        message.error('请选择要导入的 .zip 或 .skill 文件');
+        message.error('请选择要导入的 .zip 技能包文件');
         return;
       }
 
-      const lower = file.name.toLowerCase();
-      if (!lower.endsWith('.zip') && !lower.endsWith('.skill')) {
-        message.error('仅支持 .zip 或 .skill 文件');
+      if (!file.name.toLowerCase().endsWith('.zip')) {
+        message.error('仅支持 .zip 技能包');
         return;
       }
 
       setSaving(true);
       await importSkillPackFile({
         file,
-        name: values.name,
-        description: values.description,
         category: values.category,
       });
 
@@ -262,7 +259,7 @@ export default function SkillPacks() {
         <Title level={3} style={{ margin: 0 }}>Skill 包配置</Title>
         <Space>
           <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
-            导入 .zip/.skill
+            导入 .zip 技能包
           </Button>
           <Button icon={<ReloadOutlined />} onClick={loadSkills} loading={loading}>
             刷新
@@ -272,7 +269,8 @@ export default function SkillPacks() {
 
       <Card style={{ marginBottom: 16 }}>
         <Text type="secondary">
-          Skill 包实体文件保存在 data/skills 目录，数据库仅保存元数据。支持从前端导入 .zip 或 .skill 文件。
+          Skill 包实体文件保存在 data/skills 目录，数据库仅保存元数据。仅支持上传 .zip 技能包（包内须包含 SKILL.md），
+          技能名称与描述将自动从 SKILL.md 中读取。
         </Text>
       </Card>
 
@@ -342,10 +340,10 @@ export default function SkillPacks() {
           <Form.Item
             label="Skill 文件"
             required
-            extra="支持 .zip / .skill，单文件最大 20MB"
+            extra="仅支持 .zip 技能包（包内须包含 SKILL.md），单文件最大 20MB；名称与描述自动从 SKILL.md 读取"
           >
             <Upload
-              accept=".zip,.skill"
+              accept=".zip"
               maxCount={1}
               fileList={fileList}
               beforeUpload={() => false}
@@ -353,10 +351,6 @@ export default function SkillPacks() {
             >
               <Button icon={<ImportOutlined />}>选择文件</Button>
             </Upload>
-          </Form.Item>
-
-          <Form.Item name="name" label="名称（可选）" extra="不填时将使用文件名作为 Skill 包名称">
-            <Input placeholder="如：前端测试增强包" />
           </Form.Item>
 
           <Form.Item name="category" label="分类" rules={[{ required: true }]}>
@@ -369,10 +363,6 @@ export default function SkillPacks() {
               <Select.Option value="writing">writing（写作）</Select.Option>
               <Select.Option value="analysis">analysis（分析）</Select.Option>
             </Select>
-          </Form.Item>
-
-          <Form.Item name="description" label="描述（可选）">
-            <Input placeholder="简要描述此 Skill 包" />
           </Form.Item>
         </Form>
       </Modal>

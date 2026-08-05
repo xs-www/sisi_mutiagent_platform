@@ -1,6 +1,6 @@
 // apps/backend/src/modules/llm/external.ts
 import axios, { AxiosError } from 'axios';
-import type { ChatMessage, ChatResponse } from './types.js';
+import type { ChatMessage, ChatResponse, TokenUsageDetail } from './types.js';
 
 // 各供应商 API Base URL
 const PROVIDER_BASE_URL: Record<string, string> = {
@@ -15,29 +15,24 @@ const PROVIDER_BASE_URL: Record<string, string> = {
 export const PROVIDER_MODELS: Record<string, string[]> = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
   anthropic: ['claude-3.5-sonnet', 'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
-  kimi: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-  qwen: ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen1.5-7b-chat', 'qwen1.5-14b-chat', 'qwen1.5-72b-chat'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  kimi: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.6', 'kimi-k2.5', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  qwen: ['qwen3.8-max', 'qwen3.8-max-preview', 'qwen3.7-plus', 'qwen3.7-max', 'qwen3.6-flash', 'qwen-audio-3.0-tts-plus'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'],
   bailian: [
-    'qwen-turbo',
-    'qwen-plus',
-    'qwen-max',
-    'qwen1.5-7b-chat',
-    'qwen1.5-14b-chat',
-    'qwen1.5-32b-chat',
-    'qwen1.5-72b-chat',
-    'qwen2.5-7b-instruct',
-    'qwen2.5-14b-instruct',
-    'qwen2.5-32b-instruct',
-    'qwen2.5-72b-instruct',
-    'qwen3-8b-instruct',
-    'qwen3-32b-instruct',
-    'deepseek-v2',
-    'deepseek-v2.5',
-    'llama3.1-8b-instruct',
-    'llama3.1-70b-instruct',
-    'llama3-8b-instruct',
-    'llama3-70b-instruct',
+    'qwen3.8-max',
+    'qwen3.8-max-preview',
+    'qwen3.7-plus',
+    'qwen3.7-max',
+    'qwen3.6-flash',
+    'qwen-audio-3.0-tts-plus',
+    'wan2.7-image',
+    'wan2.7-image-pro',
+    'happyhorse-1.1-i2v',
+    'happyhorse-1.1-t2v',
+    'happyhorse-1.1-r2v',
+    'deepseek-v4-pro',
+    'deepseek-v4-flash-0731',
+    'glm-5.2',
   ],
 };
 
@@ -62,6 +57,35 @@ function printError(provider: string, error: AxiosError) {
   const status = error.response?.status;
   const respData: any = error.response?.data;
   console.error(`[LLM][${provider}] ${status} error:`, JSON.stringify(respData, null, 2));
+}
+
+// 归一化 OpenAI 兼容接口的 usage：把各家缓存字段统一为「命中/未命中/缓存写入/输出」。
+// - DeepSeek：原生返回 prompt_cache_hit_tokens / prompt_cache_miss_tokens
+// - OpenAI / Kimi / Qwen / 百炼：prompt_tokens_details.cached_tokens（命中部分），其余输入算未命中
+function normalizeOpenAICompatibleUsage(provider: string, usage: any): TokenUsageDetail {
+  const prompt = Number(usage?.prompt_tokens) || 0;
+  const completion = Number(usage?.completion_tokens) || 0;
+
+  let cacheHit = 0;
+  let cacheMiss = prompt;
+  let cacheWrite = 0;
+
+  if (provider === 'deepseek' && usage?.prompt_cache_hit_tokens != null) {
+    cacheHit = Number(usage.prompt_cache_hit_tokens) || 0;
+    const missRaw = Number(usage?.prompt_cache_miss_tokens);
+    cacheMiss = Number.isNaN(missRaw) ? Math.max(prompt - cacheHit, 0) : Math.max(missRaw, 0);
+  } else {
+    cacheHit = Number(usage?.prompt_tokens_details?.cached_tokens) || 0;
+    cacheMiss = Math.max(prompt - cacheHit, 0);
+    cacheWrite = Number(usage?.prompt_tokens_details?.cache_write_tokens) || 0;
+  }
+
+  return {
+    inputCacheHitTokens: cacheHit,
+    inputCacheMissTokens: cacheMiss,
+    cacheWriteTokens: cacheWrite,
+    outputTokens: completion,
+  };
 }
 
 // 通用 OpenAI 兼容接口调用（openai/kimi/qwen/deepseek 共用）
@@ -89,7 +113,8 @@ export async function chatOpenAICompatible(
       },
       done: true,
       prompt_eval_count: response.data.usage?.prompt_tokens,
-      eval_count: response.data.usage?.completion_tokens
+      eval_count: response.data.usage?.completion_tokens,
+      usage: normalizeOpenAICompatibleUsage(provider, response.data.usage)
     };
   } catch (error: any) {
     printError(provider, error);
@@ -141,6 +166,7 @@ export async function chatAnthropic(
       timeout: 120000
     });
 
+    const u = response.data.usage ?? {};
     return {
       model,
       message: {
@@ -148,8 +174,16 @@ export async function chatAnthropic(
         content: response.data.content[0].text
       },
       done: true,
-      prompt_eval_count: response.data.usage?.input_tokens,
-      eval_count: response.data.usage?.output_tokens
+      prompt_eval_count: u.input_tokens,
+      eval_count: u.output_tokens,
+      // Anthropic：input_tokens 本身即未命中部分；cache_read_input_tokens 为命中部分；
+      // cache_creation_input_tokens 为写入缓存消耗（显式缓存下才有值，按 125% 计费）
+      usage: {
+        inputCacheHitTokens: Number(u.cache_read_input_tokens) || 0,
+        inputCacheMissTokens: Number(u.input_tokens) || 0,
+        cacheWriteTokens: Number(u.cache_creation_input_tokens) || 0,
+        outputTokens: Number(u.output_tokens) || 0,
+      }
     };
   } catch (error: any) {
     printError('anthropic', error);

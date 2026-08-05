@@ -14,6 +14,7 @@ import { approvalRouter } from './modules/approval/index.js';
 import { apiKeyRouter } from './modules/apikeys/index.js';
 import { platformRouter } from './modules/platform/index.js';
 import { skillRouter } from './modules/skill/index.js';
+import { usageRouter } from './modules/usage/index.js';
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/approvals', approvalRouter);
 app.use('/api/api-keys', apiKeyRouter);
 app.use('/api/platform', platformRouter);
 app.use('/api/skills', skillRouter);
+app.use('/api/usage', usageRouter);
 
 // 初始化
 initDb();

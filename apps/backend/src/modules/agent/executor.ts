@@ -5,12 +5,13 @@ import { parseAgentResponse } from './action-parser.js';
 import type { ParsedAction } from './action-parser.js';
 import type { Agent } from './types.js';
 import { getTicketById, updateTicketStatus, createMessage, getMessagesByTicket, createTicket } from '../ticket/repository.js';
-import { addMemory } from '../memory/manager.js';
+import { memoryService } from '../memory/service.js';
 import type { ChatMessage } from '../llm/types.js';
 import { resolveProjectAssignee } from '../project/repository.js';
 import { dispatchChildTicketExecution } from './orchestration.js';
 import { buildProjectWorkspaceDigest } from '../project/repository.js';
 import { supervise } from './supervisor.js';
+import type { ChildExecutionSummary } from './supervisor.js';
 import type { AgentEvent, ExecutionSignal } from './events.js';
 
 const MAX_ITERATIONS = 10; // 最大循环次数
@@ -49,6 +50,8 @@ export async function executeAgent(
   let error: string | undefined;
   let failed = false;
   let projectFolderDigest: string | undefined;
+  // 收集子工单执行结果，供监督层（supervisor）做结构化风险评估
+  const childResults: ChildExecutionSummary[] = [];
 
   const emit = (event: AgentEvent): void => {
     // 子工单执行时，给事件打标识，前端据此把子工单步骤与父工单步骤区分渲染
@@ -120,7 +123,7 @@ export async function executeAgent(
     const messages = getMessagesByTicket(ticketId);
 
     // 构建Prompt
-    const chatMessages = buildReActPrompt(
+    const chatMessages = await buildReActPrompt(
       agent.config,
       ticket,
       messages,
@@ -129,12 +132,13 @@ export async function executeAgent(
       projectFolderDigest
     );
 
-    // 调用LLM（平台统一模型池）
+    // 调用LLM（平台统一模型池），携带归属上下文用于 token 用量统计
     let response: string;
     try {
       const result = await chatWithPlatformModels(
         chatMessages,
-        { temperature: options?.temperature }
+        { temperature: options?.temperature },
+        { projectId: effectiveProjectId, ticketId, agentId: agent.id }
       );
       response = result.message.content;
     } catch (err: any) {
@@ -166,7 +170,7 @@ export async function executeAgent(
     emit({ type: 'thought', iteration: i + 1, messageId: thoughtMsg.id, content: thoughtMsg.content, createdAt: thoughtMsg.createdAt, senderType: 'agent', timestamp: now() });
 
     // 执行Action
-    const observation = await executeAction(parsed, agent, ticketId, effectiveProjectId, emit, options?.signal);
+    const observation = await executeAction(parsed, agent, ticketId, effectiveProjectId, emit, options?.signal, childResults);
 
     // 记录Action和Observation
     const actionRaw = parsed.raw.match(/Action:.*$/m)?.[0] || '';
@@ -195,6 +199,14 @@ export async function executeAgent(
       observation
     });
 
+    // 记录交互到记忆系统（fire-and-forget，不影响主流程）
+    memoryService.recordInteraction(
+      agent.id,
+      ticketId,
+      'agent',
+      `Thought: ${parsed.thought}\nAction: ${actionRaw.replace('Action: ', '')}\nObservation: ${observation}`
+    ).catch(err => console.error('[executor] 记忆记录失败:', err));
+
     // ==== ReAct 监督层 ====
     const supervisionResult = supervise({
       iteration: i + 1,
@@ -203,6 +215,8 @@ export async function executeAgent(
       stepHistory: steps.slice(0, -1),
       agentRole: agent.role,
       ticketStatus: ticket.status,
+      parsedActionType: parsed.type,
+      childResults,
     });
 
     // 发出监督事件（有 observation 时写消息 + 发事件）
@@ -320,7 +334,8 @@ async function executeAction(
   ticketId: string,
   projectId?: string,
   emit?: (event: AgentEvent) => void,
-  signal?: ExecutionSignal
+  signal?: ExecutionSignal,
+  childResults?: ChildExecutionSummary[]
 ): Promise<string> {
   const now = () => new Date().toISOString();
 
@@ -404,7 +419,7 @@ async function executeAction(
 
       // 同步串行派发子工单执行：阻塞当前 ReAct 循环，等子工单跑完才返回。
       // 子工单执行事件通过 onEvent/signal 透传到父工单 SSE 流（带 childTicketId 标识）。
-      await dispatchChildTicketExecution({
+      const childResult = await dispatchChildTicketExecution({
         parentTicketId: ticketId,
         createdTicket,
         projectId: effectiveProjectId,
@@ -412,6 +427,14 @@ async function executeAction(
         triggerAgentName: agent.name,
         onEvent: emit,
         signal,
+      });
+
+      // 收集子工单执行结果，供监督层评估
+      childResults?.push({
+        ticketId: createdTicket.id,
+        title: createdTicket.title,
+        completed: !!childResult.completed,
+        error: childResult.error,
       });
 
       // 发射子工单派发事件，供父工单 SSE 流感知
@@ -444,6 +467,9 @@ async function executeAction(
 
     case 'finish':
       return '执行结束';
+
+    case 'invalid':
+      return 'Action 无法解析，请严格按照 Thought/Action 格式输出，且每步只能输出一个 Action。请重新思考并输出合法的 Action。';
 
     default:
       return `未知行动类型: ${action.type}`;

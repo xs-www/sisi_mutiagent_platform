@@ -1,7 +1,7 @@
 // apps/backend/src/modules/agent/prompt-builder.ts
 import type { AgentConfig } from './types.js';
 import type { Ticket, Message } from '../ticket/types.js';
-import { formatMemoriesForPrompt } from '../memory/index.js';
+import { memoryService } from '../memory/service.js';
 import type { ChatMessage } from '../llm/types.js';
 import { getProjectMemberProfiles } from '../project/repository.js';
 
@@ -10,6 +10,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   file_read: '读取文件内容。参数: { path: string }',
   file_write: '写入文件。参数: { path: string, content: string }',
   file_delete: '删除文件。参数: { path: string }（需审批）',
+  list_files: '列出工作目录中的文件与子目录（不递归）。参数: { path?: string }，省略 path 时列出工作目录根',
+  file_exists: '检查路径是否存在并返回类型。参数: { path: string }',
   shell_execute: '执行Shell命令。参数: { command: string }（需审批）',
   http_request: '发送HTTP请求。参数: { url: string, method: string, body?: string }',
   code_search: '搜索代码库。参数: { query: string, path?: string }',
@@ -24,14 +26,14 @@ export interface ReActStep {
   observation: string;
 }
 
-export function buildReActPrompt(
+export async function buildReActPrompt(
   agentConfig: AgentConfig,
   ticket: Ticket,
   messages: Message[],
   reactHistory: ReActStep[],
   projectId?: string,
   projectFolderDigest?: string
-): ChatMessage[] {
+): Promise<ChatMessage[]> {
   const chatMessages: ChatMessage[] = [];
 
   // 1. System Prompt
@@ -70,11 +72,15 @@ export function buildReActPrompt(
   systemParts.push('Action: 行动类型(参数)');
   systemParts.push('重要：一次回复只能包含一个 Action 行。若要先写文件再完成工单，请先输出 file_write，等下一轮观察到写入成功后，再输出 complete_ticket。禁止在同一次回复中同时输出 file_write 与 complete_ticket。');
 
-  // 5. 记忆
-  const memoryText = formatMemoriesForPrompt(agentConfig.id, projectId);
-  if (memoryText !== '（暂无记忆）') {
-    systemParts.push('\n## 记忆');
-    systemParts.push(memoryText);
+  // 5. 记忆（异步检索：短期上下文 + 长期语义检索）
+  try {
+    const memoryQuery = ticket.title + '\n' + (ticket.description || '');
+    const memoryText = await memoryService.getContextForPrompt(agentConfig.id, ticket.id, memoryQuery);
+    if (memoryText && memoryText !== '（暂无相关记忆）') {
+      systemParts.push('\n' + memoryText);
+    }
+  } catch (err) {
+    console.error('[prompt-builder] 记忆检索失败，跳过:', err);
   }
 
   if (projectId) {

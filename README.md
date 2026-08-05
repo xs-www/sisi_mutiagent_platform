@@ -26,9 +26,12 @@ apps/
   backend/        # 后端服务
   frontend/       # 前端应用
 data/
-  agents/         # Agent 配置示例与数据
+  agents/
+    builtin/      # 内置 Agent（基础信息由 git 追踪）
+    custom/       # 用户自定义 Agent（git 不追踪）
   platform.db     # SQLite 数据库（运行后生成）
 docs/
+  项目文档/        # 项目静态函数文档
   specs/          # 设计文档
   plans/          # 迭代计划文档
 ```
@@ -87,9 +90,11 @@ npm run dev
 
 - 后端启动时会初始化 `data/platform.db` 并执行 schema
 - 平台配置文件路径：`data/platform.yaml`（可选）
+- Agent 分为内置（`data/agents/builtin/`）与用户自定义（`data/agents/custom/`）两部分：
+  - git 仅追踪内置 Agent 的基础信息（`agent.yaml` / `prompt.md` / `tools.yaml`）
+  - 内置 Agent 的记忆等运行时模块、任何用户自定义 Agent 均不被 git 追踪
 - 内置示例 Agent 配置：
-  - `data/agents/supervisor/config.yaml`
-  - `data/agents/writer/config.yaml`
+  - `data/agents/builtin/supervisor/agent.yaml`（项目监理）
 
 ## 当前状态与已知限制
 

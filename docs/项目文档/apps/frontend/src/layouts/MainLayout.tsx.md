@@ -6,14 +6,14 @@
 
 ## 函数与方法
 
-### `getSelectedKey`（第 31 行）
+### `getSelectedKey`（第 32 行）
 
 - 类型：函数
 - 签名：`function getSelectedKey(pathname: string): string`
 - 功能：读取或查询 selected key 数据并返回结果。
 - 行为提示：未识别到显著的外部副作用。
 
-### `MainLayout`（第 42 行）
+### `MainLayout`（第 43 行）
 
 - 类型：React 组件
 - 签名：`export default function MainLayout()`

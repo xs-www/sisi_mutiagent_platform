@@ -34,10 +34,12 @@ import {
   PlusOutlined,
   FolderOpenOutlined,
   CodeOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { getProject, updateProject, getProjectMembers, addProjectMember, removeProjectMember, openProjectFolder, suggestProjectMembers } from '../api/project';
 import { getTicketsByProject, deleteTicket } from '../api/ticket';
 import { getAgents } from '../api/agent';
+import { getProjectUsage, type ProjectUsageSummary } from '../api/usage';
 import { useGlobalStore } from '../store';
 import { formatDate, TICKET_STATUS_LABEL, TICKET_STATUS_COLOR, TICKET_PRIORITY_LABEL } from '../utils';
 import type { Project, ProjectMember, Agent, Ticket } from '../types';
@@ -53,6 +55,7 @@ export default function ProjectDetail() {
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [usage, setUsage] = useState<ProjectUsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -84,16 +87,18 @@ export default function ProjectDetail() {
     if (!id) return;
     setLoading(true);
     try {
-      const [p, m, t, a] = await Promise.all([
+      const [p, m, t, a, u] = await Promise.all([
         getProject(id),
         getProjectMembers(id),
         getTicketsByProject(id),
         getAgents(),
+        getProjectUsage(id).catch(() => null),
       ]);
       setProject(p);
       setMembers(m);
       setTickets(t);
       setAgents(a);
+      setUsage(u);
       setCurrentProject(p);
     } catch (error) {
       console.error('加载项目详情失败:', error);
@@ -115,12 +120,6 @@ export default function ProjectDetail() {
 
   const handleEdit = () => {
     if (!project) return;
-    editForm.setFieldsValue({
-      name: project.name,
-      description: project.description,
-      supervisorId: project.supervisorId || undefined,
-      status: project.status,
-    });
     setEditModalOpen(true);
   };
 
@@ -424,6 +423,50 @@ export default function ProjectDetail() {
         </Col>
       </Row>
 
+      {/* Token 用量统计 */}
+      <Card
+        title={<Space><ThunderboltOutlined /><span>Token 消耗</span></Space>}
+        size="small"
+        style={{ marginBottom: 16 }}
+      >
+        {usage && usage.totalTokens > 0 ? (
+          <Row gutter={[16, 16]}>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic title="调用次数" value={usage.callCount} />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title="输入命中缓存"
+                value={usage.inputCacheHitTokens}
+                valueStyle={{ color: '#52c41a' }}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title="输入未命中"
+                value={usage.inputCacheMissTokens}
+                valueStyle={{ color: '#fa8c16' }}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic title="输出" value={usage.outputTokens} />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title="缓存写入"
+                value={usage.cacheWriteTokens}
+                valueStyle={{ color: '#722ed1' }}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic title="合计" value={usage.totalTokens} valueStyle={{ fontWeight: 600 }} />
+            </Col>
+          </Row>
+        ) : (
+          <Text type="secondary">该项目暂无 Token 消耗记录</Text>
+        )}
+      </Card>
+
       {/* 成员管理 */}
       <Card
         title={<Space><TeamOutlined /><span>项目成员</span></Space>}
@@ -500,7 +543,18 @@ export default function ProjectDetail() {
         okText="保存"
         cancelText="取消"
       >
-        <Form form={editForm} layout="vertical" preserve={false}>
+        {editModalOpen && project && (
+        <Form
+          form={editForm}
+          layout="vertical"
+          preserve={false}
+          initialValues={{
+            name: project.name,
+            description: project.description,
+            supervisorId: project.supervisorId || undefined,
+            status: project.status,
+          }}
+        >
           <Form.Item
             name="name"
             label="项目名称"
@@ -525,6 +579,7 @@ export default function ProjectDetail() {
             </Select>
           </Form.Item>
         </Form>
+        )}
       </Modal>
 
       {/* 推荐成员 Modal */}

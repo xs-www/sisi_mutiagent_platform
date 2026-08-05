@@ -11,6 +11,7 @@ import ApiKeys from '../pages/ApiKeys';
 import PlatformSettings from '../pages/PlatformSettings';
 import SkillPacks from '../pages/SkillPacks';
 import Approvals from '../pages/Approvals';
+import Workflow from '../pages/Workflow';
 import NotFound from '../pages/NotFound';
 import MainLayout from '../layouts/MainLayout';
 
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
       { path: 'platform-settings', element: <PlatformSettings /> },
       { path: 'skill-packs', element: <SkillPacks /> },
       { path: 'approvals', element: <Approvals /> },
+      { path: 'workflow', element: <Workflow /> },
       { path: '*', element: <Navigate to="/404" replace /> },
     ],
   },

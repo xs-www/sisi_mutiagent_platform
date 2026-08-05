@@ -44,6 +44,8 @@ export interface Agent {
   role: AgentRole;
   configPath: string;
   config: AgentConfig;
+  /** 是否内置 Agent（存放于 data/agents/builtin 命名空间） */
+  isBuiltin: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

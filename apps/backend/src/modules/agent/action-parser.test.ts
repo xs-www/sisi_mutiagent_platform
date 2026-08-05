@@ -36,4 +36,26 @@ Action: create_ticket(projectId="a0f2586d-8415-4be5-9973-d985bd838ecc", title="�
     expect(result.ticketTitle).toBe('撰写中国AI最新进展综合科普短文');
     expect(result.ticketAssignee).toBe('writer');
   });
+
+  it('空响应解析为 invalid 而非 finish（防止假完成）', () => {
+    const result = parseAgentResponse('');
+    expect(result.type).toBe('invalid');
+  });
+
+  it('无 Action 行的响应解析为 invalid 而非 finish（防止假完成）', () => {
+    const result = parseAgentResponse(`Thought: 我还在思考中，没有决定下一步`);
+    expect(result.type).toBe('invalid');
+  });
+
+  it('无法识别的 Action 解析为 invalid 而非 finish', () => {
+    const result = parseAgentResponse(`Thought: 尝试输出
+Action: some_unknown_action(abc)`);
+    expect(result.type).toBe('invalid');
+  });
+
+  it('空工具名的 tool_call 解析为 invalid', () => {
+    const result = parseAgentResponse(`Thought: 调用工具
+Action: tool_call()`);
+    expect(result.type).toBe('invalid');
+  });
 });

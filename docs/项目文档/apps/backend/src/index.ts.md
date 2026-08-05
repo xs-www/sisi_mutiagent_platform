@@ -1,12 +1,17 @@
 # index.ts
 
 - 源文件：`apps/backend/src/index.ts`
-- 文件职责：模块出口：汇总并重新导出相邻模块的公共 API。
+- 文件职责：后端服务入口：装配 Express 应用、注册各模块路由并初始化数据库。
 - 具名函数/方法：0 个
 
-## 函数与方法
+## 模块说明
 
-本文件没有具名函数或方法。匿名回调、类型声明和常量不单独列项。
+- 引入并挂载全部业务模块路由：
+  - `/api/agents`、`/api/llm`、`/api/tickets`、`/api/projects`、`/api/tools`
+  - `/api/approvals`、`/api/api-keys`、`/api/platform`、`/api/skills`
+  - `/api/usage`（本次新增）：Token 用量查询路由，见 `modules/usage/routes.ts`
+- 启动流程：`initDb()` 执行 schema（含新增 `token_usage` 表）→ 迁移项目/工单存储 → 同步内置 Agent → 监听端口。
+- 优雅关闭：SIGINT/SIGTERM 时 `closeDb()`。
 
 ---
 

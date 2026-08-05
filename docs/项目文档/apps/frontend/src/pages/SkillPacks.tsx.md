@@ -59,52 +59,52 @@
 
 - 类型：箭头函数
 - 签名：`async handleImportFile()`
-- 功能：处理 import file 事件并更新相关状态。
+- 功能：校验并导入 .zip 技能包（仅支持 .zip，名称与描述由后端从 SKILL.md 自动读取），成功后刷新列表。
 - 行为提示：包含异步操作；更新界面或运行时状态。
 
-### `render`（第 183 行）
+### `render`（第 180 行）
 
 - 类型：箭头函数
 - 签名：`render(text: string)`
 - 功能：构建或格式化 render。
 - 行为提示：未识别到显著的外部副作用。
 
-### `render`（第 190 行）
+### `render`（第 187 行）
 
 - 类型：箭头函数
 - 签名：`render(cat: string)`
 - 功能：构建或格式化 render。
 - 行为提示：未识别到显著的外部副作用。
 
-### `render`（第 196 行）
+### `render`（第 193 行）
 
 - 类型：箭头函数
 - 签名：`render(_: any, record: SkillPack)`
 - 功能：构建或格式化 render。
 - 行为提示：未识别到显著的外部副作用。
 
-### `render`（第 210 行）
+### `render`（第 207 行）
 
 - 类型：箭头函数
 - 签名：`render(desc: string)`
 - 功能：构建或格式化 render。
 - 行为提示：未识别到显著的外部副作用。
 
-### `render`（第 217 行）
+### `render`（第 214 行）
 
 - 类型：箭头函数
 - 签名：`render(active: boolean, record: SkillPack)`
 - 功能：构建或格式化 render。
 - 行为提示：未识别到显著的外部副作用。
 
-### `render`（第 226 行）
+### `render`（第 223 行）
 
 - 类型：箭头函数
 - 签名：`render(t: string)`
 - 功能：构建或格式化 render。
 - 行为提示：未识别到显著的外部副作用。
 
-### `render`（第 232 行）
+### `render`（第 229 行）
 
 - 类型：箭头函数
 - 签名：`render(_: any, record: SkillPack)`

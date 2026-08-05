@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   Select,
+  AutoComplete,
   Switch,
   Popconfirm,
   Spin,
@@ -325,15 +326,13 @@ export default function PlatformSettings() {
             </Select>
           </Form.Item>
 
-          <Form.Item name="modelName" label="模型名" rules={[{ required: true, message: '请选择或输入模型名' }]}>
-            <Select
-              placeholder="选择或输入模型名"
-              showSearch
+          <Form.Item name="modelName" label="模型名" rules={[{ required: true, message: '请输入模型名' }]}>
+            <AutoComplete
+              placeholder="输入模型名或从列表选择"
               allowClear
               options={(providerModels[currentProvider] || []).map(m => ({ label: m, value: m }))}
-              notFoundContent="无预置模型，可直接输入"
-              filterOption={(input, option) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+              filterOption={(inputValue, option) =>
+                (option?.value as string)?.toLowerCase().includes(inputValue.toLowerCase())
               }
             />
           </Form.Item>

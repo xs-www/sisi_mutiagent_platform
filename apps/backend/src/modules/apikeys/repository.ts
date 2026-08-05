@@ -6,11 +6,17 @@ export function createApiKey(input: CreateApiKeyInput): ApiKey {
   const db = getDb();
   const id = uuidv4();
   const maxConcurrency = input.maxConcurrency ?? 1;
+  const categories = input.categories && input.categories.length > 0
+    ? JSON.stringify(input.categories)
+    : JSON.stringify(['chat']);
+  const models = input.models && input.models.length > 0
+    ? JSON.stringify(input.models)
+    : JSON.stringify([]);
 
   db.prepare(`
-    INSERT INTO api_keys (id, provider, name, api_key, max_concurrency, is_active)
-    VALUES (?, ?, ?, ?, ?, 1)
-  `).run(id, input.provider, input.name, input.apiKey, maxConcurrency);
+    INSERT INTO api_keys (id, provider, name, api_key, max_concurrency, is_active, categories, models)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(id, input.provider, input.name, input.apiKey, maxConcurrency, categories, models);
 
   return getApiKeyById(id)!;
 }
@@ -40,6 +46,11 @@ export function getAllActiveApiKeys(): ApiKey[] {
   return rows.map(mapRow);
 }
 
+export function getActiveKeysByCategory(category: string): ApiKey[] {
+  const all = getAllActiveApiKeys();
+  return all.filter(k => k.categories.includes(category));
+}
+
 export function updateApiKey(id: string, input: UpdateApiKeyInput): ApiKey | null {
   const db = getDb();
   const current = getApiKeyById(id);
@@ -50,12 +61,18 @@ export function updateApiKey(id: string, input: UpdateApiKeyInput): ApiKey | nul
   const apiKey = input.apiKey ?? current.apiKey;
   const maxConcurrency = input.maxConcurrency ?? current.maxConcurrency;
   const isActive = input.isActive !== undefined ? (input.isActive ? 1 : 0) : (current.isActive ? 1 : 0);
+  const categories = input.categories !== undefined
+    ? JSON.stringify(input.categories)
+    : JSON.stringify(current.categories);
+  const models = input.models !== undefined
+    ? JSON.stringify(input.models)
+    : JSON.stringify(current.models);
 
   db.prepare(`
     UPDATE api_keys
-    SET provider = ?, name = ?, api_key = ?, max_concurrency = ?, is_active = ?, updated_at = datetime('now')
+    SET provider = ?, name = ?, api_key = ?, max_concurrency = ?, is_active = ?, categories = ?, models = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(provider, name, apiKey, maxConcurrency, isActive, id);
+  `).run(provider, name, apiKey, maxConcurrency, isActive, categories, models, id);
 
   return getApiKeyById(id);
 }
@@ -67,6 +84,19 @@ export function deleteApiKey(id: string): boolean {
 }
 
 function mapRow(row: any): ApiKey {
+  let categories: string[];
+  try {
+    categories = JSON.parse(row.categories || '["chat"]');
+  } catch {
+    categories = ['chat'];
+  }
+  let models: string[];
+  try {
+    models = JSON.parse(row.models || '[]');
+  } catch {
+    models = [];
+  }
+
   return {
     id: row.id,
     provider: row.provider,
@@ -74,6 +104,8 @@ function mapRow(row: any): ApiKey {
     apiKey: row.api_key,
     maxConcurrency: row.max_concurrency,
     isActive: !!row.is_active,
+    categories,
+    models,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

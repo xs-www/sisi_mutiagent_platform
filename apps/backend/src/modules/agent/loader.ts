@@ -1,28 +1,111 @@
 // apps/backend/src/modules/agent/loader.ts
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { config } from '../../config/index.js';
-import type { AgentConfig, Agent } from './types.js';
+import type { AgentConfig, Agent, AgentToolsConfig } from './types.js';
 import { getDb } from '../../db/index.js';
 
-function getAgentsDir(): string {
+// Agent 命名空间：内置（builtin）与用户自定义（custom）
+export const AGENT_NAMESPACES = ['builtin', 'custom'] as const;
+export type AgentNamespace = (typeof AGENT_NAMESPACES)[number];
+
+// 新格式文件名约定：agent.yaml（基础信息）+ prompt.md（长 system prompt）+ tools.yaml（工具配置）
+const AGENT_YAML_FILE = 'agent.yaml';
+const PROMPT_MD_FILE = 'prompt.md';
+const TOOLS_YAML_FILE = 'tools.yaml';
+// 旧格式文件名（仅用于兼容迁移）
+const CONFIG_YAML_FILE = 'config.yaml';
+const LEGACY_MARKDOWN_SUFFIX = '.agent.md';
+
+function getAgentsRoot(): string {
   return join(config.dataDir, 'agents');
 }
 
-function getAgentDir(agentId: string): string {
-  const canonicalDir = join(getAgentsDir(), agentId);
-  if (existsSync(canonicalDir)) {
-    return canonicalDir;
-  }
-
-  const legacyDir = join(config.dataDir, agentId);
-  if (existsSync(legacyDir)) {
-    return legacyDir;
-  }
-
-  return canonicalDir;
+function getNamespaceDir(namespace: AgentNamespace): string {
+  return join(getAgentsRoot(), namespace);
 }
+
+function getAgentDir(agentId: string): string | null {
+  for (const ns of AGENT_NAMESPACES) {
+    const dir = join(getNamespaceDir(ns), agentId);
+    if (existsSync(dir)) {
+      return dir;
+    }
+  }
+  return null;
+}
+
+function getAgentNamespace(agentDir: string): AgentNamespace {
+  return agentDir.startsWith(getNamespaceDir('builtin') + sep) ? 'builtin' : 'custom';
+}
+
+// ==================== 新格式读取 ====================
+
+function readAgentFromDir(agentDir: string, agentId: string): AgentConfig | null {
+  const yamlPath = join(agentDir, AGENT_YAML_FILE);
+  if (!existsSync(yamlPath)) {
+    return null;
+  }
+
+  const base = parseYaml(readFileSync(yamlPath, 'utf-8')) as Partial<AgentConfig>;
+
+  // system prompt 从 prompt.md 读取（缺失时回退到 agent.yaml 的 prompt.system）
+  let system = base.prompt?.system || '';
+  const promptPath = join(agentDir, PROMPT_MD_FILE);
+  if (existsSync(promptPath)) {
+    system = readFileSync(promptPath, 'utf-8').trim();
+  }
+
+  // 工具配置从 tools.yaml 读取（缺失时回退到 agent.yaml 的 tools）
+  let tools: AgentToolsConfig = base.tools || { predefined: [] };
+  const toolsPath = join(agentDir, TOOLS_YAML_FILE);
+  if (existsSync(toolsPath)) {
+    const parsed = parseYaml(readFileSync(toolsPath, 'utf-8')) as any;
+    if (Array.isArray(parsed)) {
+      // 兼容：tools.yaml 直接为工具名数组
+      tools = { predefined: parsed as string[] };
+    } else {
+      tools = {
+        predefined: Array.isArray(parsed?.predefined) ? parsed.predefined : [],
+        approvalRequired: Array.isArray(parsed?.approvalRequired) ? parsed.approvalRequired : undefined,
+        custom: Array.isArray(parsed?.custom) ? parsed.custom : undefined,
+      };
+    }
+  }
+
+  const predefinedTools = tools.predefined || [];
+  // 未显式声明审批清单时，默认对危险工具要求审批
+  const approvalRequired = tools.approvalRequired && tools.approvalRequired.length > 0
+    ? tools.approvalRequired
+    : predefinedTools.filter((name) => ['file_delete', 'shell_execute'].includes(name));
+
+  const memory = base.memory || { global: true, project: true };
+
+  return {
+    id: agentId,
+    name: base.name || agentId,
+    description: base.description || '',
+    role: base.role || 'specialist',
+    prompt: {
+      system,
+      personality: base.prompt?.personality,
+    },
+    tools: {
+      predefined: predefinedTools,
+      approvalRequired,
+      custom: tools.custom || [],
+    },
+    memory: {
+      global: memory.global ?? true,
+      project: memory.project ?? true,
+    },
+    skills: base.skills || [],
+    instructions: base.instructions || {},
+  };
+}
+
+// ==================== 旧格式读取（兼容迁移） ====================
 
 function parseMarkdownAgent(markdown: string, agentId: string): AgentConfig | null {
   const lines = markdown.split(/\r?\n/);
@@ -102,73 +185,22 @@ function parseMarkdownAgent(markdown: string, agentId: string): AgentConfig | nu
   };
 }
 
-function readMarkdownAgent(agentId: string): AgentConfig | null {
-  const agentDir = getAgentDir(agentId);
-  const markdownPath = join(agentDir, `${agentId}.agent.md`);
-  if (!existsSync(markdownPath)) {
-    return null;
-  }
-
-  const markdown = readFileSync(markdownPath, 'utf-8');
-  return parseMarkdownAgent(markdown, agentId);
-}
-
-function writeAgentFiles(agentConfig: AgentConfig): { markdownPath: string; configPath: string } {
-  const existingDir = getAgentDir(agentConfig.id);
-  const agentDir = existsSync(existingDir) && existingDir !== join(getAgentsDir(), agentConfig.id)
-    ? existingDir
-    : join(getAgentsDir(), agentConfig.id);
-  mkdirSync(agentDir, { recursive: true });
-
-  const markdownPath = join(agentDir, `${agentConfig.id}.agent.md`);
-  const configPath = join(agentDir, 'config.yaml');
-
-  const frontMatter = {
-    name: agentConfig.name,
-    description: agentConfig.description || '',
-    role: agentConfig.role,
-    prompt: agentConfig.prompt,
-    tools: agentConfig.tools.predefined || [],
-    approvalRequired: agentConfig.tools.approvalRequired || [],
-    memory: agentConfig.memory,
-    skills: agentConfig.skills || [],
-    instructions: agentConfig.instructions || {},
-  };
-
-  const sections = [
-    agentConfig.instructions?.goal ? ['## 目标', agentConfig.instructions.goal, ''] : [],
-    agentConfig.instructions?.constraints ? ['## 约束', agentConfig.instructions.constraints, ''] : [],
-    agentConfig.instructions?.methods ? ['## 工作方法', agentConfig.instructions.methods, ''] : [],
-    agentConfig.instructions?.outputFormat ? ['## 输出格式', agentConfig.instructions.outputFormat, ''] : [],
-    agentConfig.instructions?.refusalStrategy ? ['## 拒绝策略', agentConfig.instructions.refusalStrategy, ''] : [],
-  ].flat();
-
-  const markdown = ['---', stringifyYaml(frontMatter).trim(), '---', '', ...sections].join('\n');
-
-  writeFileSync(markdownPath, markdown, 'utf-8');
-  writeFileSync(configPath, stringifyYaml(agentConfig), 'utf-8');
-
-  return { markdownPath, configPath };
-}
-
-export function loadAgentConfig(agentId: string): AgentConfig | null {
-  const markdownConfig = readMarkdownAgent(agentId);
-  if (markdownConfig) {
-    const configPath = join(getAgentDir(agentId), 'config.yaml');
-    if (!existsSync(configPath)) {
-      writeAgentFiles(markdownConfig);
+function readLegacyAgent(agentDir: string, agentId: string): AgentConfig | null {
+  const markdownPath = join(agentDir, `${agentId}${LEGACY_MARKDOWN_SUFFIX}`);
+  if (existsSync(markdownPath)) {
+    const markdownConfig = parseMarkdownAgent(readFileSync(markdownPath, 'utf-8'), agentId);
+    if (markdownConfig) {
+      return markdownConfig;
     }
-    return markdownConfig;
   }
 
-  const configPath = join(getAgentsDir(), agentId, 'config.yaml');
+  const configPath = join(agentDir, CONFIG_YAML_FILE);
   if (!existsSync(configPath)) {
     return null;
   }
 
-  const content = readFileSync(configPath, 'utf-8');
-  const parsed = parseYaml(content) as AgentConfig;
-  const normalized: AgentConfig = {
+  const parsed = parseYaml(readFileSync(configPath, 'utf-8')) as AgentConfig;
+  return {
     ...parsed,
     id: agentId,
     name: parsed.name || agentId,
@@ -180,30 +212,90 @@ export function loadAgentConfig(agentId: string): AgentConfig | null {
     skills: parsed.skills || [],
     instructions: parsed.instructions || {},
   };
-  writeAgentFiles(normalized);
-  return normalized;
+}
+
+// ==================== 写入（新格式） ====================
+
+function writeAgentFiles(agentConfig: AgentConfig): { agentDir: string; configPath: string } {
+  const existingDir = getAgentDir(agentConfig.id);
+  const agentDir = existingDir || join(getNamespaceDir('custom'), agentConfig.id);
+  mkdirSync(agentDir, { recursive: true });
+
+  const agentYaml = {
+    id: agentConfig.id,
+    name: agentConfig.name,
+    description: agentConfig.description || '',
+    role: agentConfig.role,
+    prompt: agentConfig.prompt?.personality ? { personality: agentConfig.prompt.personality } : undefined,
+    memory: agentConfig.memory,
+    skills: agentConfig.skills || [],
+    instructions: agentConfig.instructions || {},
+  };
+
+  writeFileSync(join(agentDir, AGENT_YAML_FILE), stringifyYaml(agentYaml), 'utf-8');
+  writeFileSync(join(agentDir, PROMPT_MD_FILE), agentConfig.prompt?.system || '', 'utf-8');
+  writeFileSync(join(agentDir, TOOLS_YAML_FILE), stringifyYaml(agentConfig.tools || { predefined: [] }), 'utf-8');
+
+  return { agentDir, configPath: join(agentDir, AGENT_YAML_FILE) };
+}
+
+// ==================== 对外 API ====================
+
+export function loadAgentConfig(agentId: string): AgentConfig | null {
+  const agentDir = getAgentDir(agentId);
+  if (!agentDir) {
+    return null;
+  }
+
+  // 优先读取新格式
+  const config = readAgentFromDir(agentDir, agentId);
+  if (config) {
+    return config;
+  }
+
+  // 旧格式兜底：读取后自动迁移为新格式
+  const legacy = readLegacyAgent(agentDir, agentId);
+  if (legacy) {
+    writeAgentFiles(legacy);
+    return legacy;
+  }
+
+  return null;
 }
 
 export function loadAllAgents(): AgentConfig[] {
-  const agentsDir = getAgentsDir();
-  if (!existsSync(agentsDir)) {
-    return [];
-  }
-
-  const agentDirs = readdirSync(agentsDir, { withFileTypes: true })
-    .filter(dirent => dirent.isDirectory())
-    .map(dirent => dirent.name);
-
   const agents: AgentConfig[] = [];
 
-  for (const agentId of agentDirs) {
-    const config = loadAgentConfig(agentId);
-    if (config) {
-      agents.push(config);
+  for (const ns of AGENT_NAMESPACES) {
+    const nsDir = getNamespaceDir(ns);
+    if (!existsSync(nsDir)) {
+      continue;
+    }
+
+    const agentDirs = readdirSync(nsDir, { withFileTypes: true })
+      .filter((dirent) => dirent.isDirectory())
+      .map((dirent) => dirent.name);
+
+    for (const agentId of agentDirs) {
+      const config = loadAgentConfig(agentId);
+      if (config) {
+        agents.push(config);
+      }
     }
   }
 
   return agents;
+}
+
+// 获取所有内置 Agent 的 ID 列表（用于项目创建时自动加入成员）
+export function getBuiltinAgentIds(): string[] {
+  const builtinDir = getNamespaceDir('builtin');
+  if (!existsSync(builtinDir)) {
+    return [];
+  }
+  return readdirSync(builtinDir, { withFileTypes: true })
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => dirent.name);
 }
 
 export function syncAgentsToDb(): void {
@@ -216,11 +308,13 @@ export function syncAgentsToDb(): void {
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       role = excluded.role,
+      config_path = excluded.config_path,
       updated_at = datetime('now')
   `);
 
   for (const agentConfig of configs) {
-    const configPath = join(getAgentsDir(), agentConfig.id, 'config.yaml');
+    const agentDir = getAgentDir(agentConfig.id);
+    const configPath = agentDir ? join(agentDir, AGENT_YAML_FILE) : '';
     upsertStmt.run(agentConfig.id, agentConfig.name, agentConfig.role, configPath);
   }
 
@@ -240,12 +334,15 @@ export function getAgentFromDb(agentId: string): Agent | null {
     return null;
   }
 
+  const agentDir = getAgentDir(agentId);
+
   return {
     id: row.id,
     name: row.name,
     role: row.role,
     configPath: row.config_path,
     config,
+    isBuiltin: agentDir ? getAgentNamespace(agentDir) === 'builtin' : false,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at)
   };
@@ -257,12 +354,14 @@ export function getAllAgentsFromDb(): Agent[] {
 
   return rows.map(row => {
     const config = loadAgentConfig(row.id);
+    const agentDir = getAgentDir(row.id);
     return {
       id: row.id,
       name: row.name,
       role: row.role,
       configPath: row.config_path,
       config: config!,
+      isBuiltin: agentDir ? getAgentNamespace(agentDir) === 'builtin' : false,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)
     };
@@ -270,8 +369,7 @@ export function getAllAgentsFromDb(): Agent[] {
 }
 
 export function createAgentConfig(agentConfig: AgentConfig): Agent {
-  const agentDir = join(getAgentsDir(), agentConfig.id);
-  if (existsSync(agentDir)) {
+  if (getAgentDir(agentConfig.id)) {
     throw new Error(`Agent "${agentConfig.id}" already exists`);
   }
 
@@ -289,14 +387,15 @@ export function createAgentConfig(agentConfig: AgentConfig): Agent {
     role: agentConfig.role,
     configPath,
     config: agentConfig,
+    isBuiltin: false,
     createdAt: new Date(),
     updatedAt: new Date()
   };
 }
 
 export function deleteAgentConfig(agentId: string): boolean {
-  const agentDir = join(getAgentsDir(), agentId);
-  if (!existsSync(agentDir)) {
+  const agentDir = getAgentDir(agentId);
+  if (!agentDir) {
     return false;
   }
 
@@ -322,7 +421,7 @@ export function updateAgentConfig(agentId: string, updates: Partial<AgentConfig>
     memory: { ...existing.config.memory, ...updates.memory },
   };
 
-  const { configPath } = writeAgentFiles(merged);
+  writeAgentFiles(merged);
 
   // 更新数据库
   const db = getDb();

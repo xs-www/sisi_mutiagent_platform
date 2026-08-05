@@ -93,6 +93,16 @@ CREATE TABLE IF NOT EXISTS agent_memories (
   FOREIGN KEY (agent_id) REFERENCES agents(id),
   FOREIGN KEY (project_id) REFERENCES projects(id)
 );
+-- Agent记忆向量表（用于RAG语义检索）
+CREATE TABLE IF NOT EXISTS memory_vectors (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  vector TEXT NOT NULL,
+  content TEXT NOT NULL,
+  metadata TEXT DEFAULT '{}',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_id) REFERENCES agents(id)
+);
 
 -- API Key管理表
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -102,6 +112,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
   api_key TEXT NOT NULL,
   max_concurrency INTEGER DEFAULT 1,
   is_active INTEGER DEFAULT 1,
+  categories TEXT NOT NULL DEFAULT '["chat"]',
+  models TEXT NOT NULL DEFAULT '[]',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -141,6 +153,25 @@ CREATE TABLE IF NOT EXISTS tool_overrides (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Token 用量明细表：按项目/工单/Agent 记录每次 LLM 调用的 token 消耗
+-- 输入按「命中缓存 / 未命中缓存」区分，另计缓存写入与输出（缓存只作用于输入）
+CREATE TABLE IF NOT EXISTS token_usage (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  ticket_id TEXT,
+  agent_id TEXT,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT 'chat',
+  input_cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
+  input_cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
 CREATE TABLE IF NOT EXISTS custom_tools (
   tool_name TEXT PRIMARY KEY,
   description TEXT NOT NULL,
@@ -160,3 +191,6 @@ CREATE INDEX IF NOT EXISTS idx_tickets_assignee ON tickets(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_messages_ticket ON messages(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_members_agent ON project_members(agent_id);
+CREATE INDEX IF NOT EXISTS idx_memory_vectors_agent ON memory_vectors(agent_id);
+CREATE INDEX IF NOT EXISTS idx_token_usage_project ON token_usage(project_id);
+CREATE INDEX IF NOT EXISTS idx_token_usage_ticket ON token_usage(ticket_id);
