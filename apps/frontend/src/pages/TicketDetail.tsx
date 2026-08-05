@@ -64,6 +64,7 @@ export default function TicketDetail() {
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [projectMembers, setProjectMembers] = useState<Agent[]>([]);
   const [childTickets, setChildTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [sending, setSending] = useState<boolean>(false);
@@ -104,13 +105,31 @@ export default function TicketDetail() {
     try {
       const data = await getAgents();
       setAgents(data);
-      if (data.length > 0 && !selectedAgentId) {
+      // 如果没有 projectMembers，可用 platform agents 作为回退
+      if (projectMembers.length === 0 && data.length > 0 && !selectedAgentId) {
         setSelectedAgentId(data[0].id);
       }
     } catch (error) {
       console.error('加载 Agent 列表失败:', error);
     }
-  }, [selectedAgentId]);
+  }, [selectedAgentId, projectMembers.length]);
+
+  const loadProjectMembers = useCallback(async (projectId?: string) => {
+    if (!projectId) return;
+    try {
+      const members = await getProjectMembers(projectId);
+      // 将 ProjectMember[] 映射为 Agent[]（使用已加载的 agents 表中匹配的项）
+      const mapped = members
+        .map((m) => agents.find((a) => a.id === m.agentId))
+        .filter(Boolean) as Agent[];
+      setProjectMembers(mapped);
+      if (mapped.length > 0 && !selectedAgentId) {
+        setSelectedAgentId(mapped[0].id);
+      }
+    } catch (error) {
+      console.error('加载项目成员失败:', error);
+    }
+  }, [agents, selectedAgentId]);
 
   const loadChildTickets = useCallback(async () => {
     if (!id) return;
@@ -125,9 +144,15 @@ export default function TicketDetail() {
   const loadAll = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    await Promise.all([loadTicket(), loadMessages(), loadAgents(), loadChildTickets()]);
-    setLoading(false);
-  }, [id, loadTicket, loadMessages, loadAgents, loadChildTickets]);
+    // 先加载工单（拿到 projectId），再并行加载消息、项目成员、platform agents 与子工单
+    try {
+      await loadTicket();
+      const projectId = (await getTicket(id)).projectId;
+      await Promise.all([loadMessages(), loadProjectMembers(projectId), loadAgents(), loadChildTickets()]);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, loadTicket, loadMessages, loadProjectMembers, loadAgents, loadChildTickets]);
 
   useEffect(() => {
     loadAll();
@@ -805,7 +830,12 @@ export default function TicketDetail() {
                 placeholder="选择 Agent"
                 value={selectedAgentId}
                 onChange={setSelectedAgentId}
-                options={agents.map((a) => ({ label: a.name, value: a.id }))}
+                // 优先使用项目成员作为可选项，若为空则回退到平台 agent 列表
+                options={
+                  projectMembers.length > 0
+                    ? projectMembers.map((a) => ({ label: a.name, value: a.id }))
+                    : agents.map((a) => ({ label: a.name, value: a.id }))
+                }
                 notFoundContent="暂无可用 Agent"
               />
               <Space style={{ width: '100%' }}>

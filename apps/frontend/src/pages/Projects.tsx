@@ -382,38 +382,50 @@ export default function Projects() {
                       <Text style={{ fontSize: 13 }}>{formatDate(project.createdAt)}</Text>
                     </div>
 
-                    <Space
-                      style={{ marginTop: 'auto', justifyContent: 'space-between', width: '100%' }}
+                    <div
+                      style={{
+                        marginTop: 'auto',
+                        width: '100%',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
                     >
-                      <Button
-                        icon={<InfoCircleOutlined />}
-                        onClick={() => navigate(`/projects/${project.id}`)}
-                      >
-                        详情
-                      </Button>
-                      <Button
-                        type="primary"
-                        icon={<ArrowRightOutlined />}
-                        onClick={() => handleEnterTickets(project)}
-                      >
-                        进入工单
-                      </Button>
-                      <Button icon={<TeamOutlined />} onClick={() => openMemberDrawer(project)}>
-                        成员管理
-                      </Button>
-                      <Popconfirm
-                        title="删除项目"
-                        description="删除后会清空该项目下工单、消息及项目目录，且不可恢复。确认删除吗？"
-                        okText="确认删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => handleDeleteProject(project)}
-                      >
-                        <Button danger icon={<DeleteOutlined />}>
-                          删除
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <Button
+                          icon={<InfoCircleOutlined />}
+                          onClick={() => navigate(`/projects/${project.id}`)}
+                        >
+                          详情
                         </Button>
-                      </Popconfirm>
-                    </Space>
+                        <Button
+                          type="primary"
+                          icon={<ArrowRightOutlined />}
+                          onClick={() => handleEnterTickets(project)}
+                        >
+                          进入工单
+                        </Button>
+                        <Button icon={<TeamOutlined />} onClick={() => openMemberDrawer(project)}>
+                          成员管理
+                        </Button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        <Popconfirm
+                          title="删除项目"
+                          description="删除后会清空该项目下工单、消息及项目目录，且不可恢复。确认删除吗？"
+                          okText="确认删除"
+                          cancelText="取消"
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => handleDeleteProject(project)}
+                        >
+                          <Button danger icon={<DeleteOutlined />}>
+                            删除
+                          </Button>
+                        </Popconfirm>
+                      </div>
+                    </div>
                   </Card>
                 </Col>
               );

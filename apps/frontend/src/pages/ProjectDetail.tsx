@@ -36,7 +36,7 @@ import {
   CodeOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { getProject, updateProject, getProjectMembers, addProjectMember, removeProjectMember, openProjectFolder } from '../api/project';
+import { getProject, updateProject, getProjectMembers, addProjectMember, removeProjectMember, openProjectFolder, suggestProjectMembers } from '../api/project';
 import { getTicketsByProject, deleteTicket } from '../api/ticket';
 import { getAgents } from '../api/agent';
 import { getProjectUsage, type ProjectUsageSummary } from '../api/usage';
@@ -63,6 +63,10 @@ export default function ProjectDetail() {
   const [editForm] = Form.useForm();
 
   const [addMemberAgentId, setAddMemberAgentId] = useState<string | undefined>();
+  const [suggestModalOpen, setSuggestModalOpen] = useState(false);
+  const [suggestedAgents, setSuggestedAgents] = useState<Agent[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [selectedSuggestedIds, setSelectedSuggestedIds] = useState<string[]>([]);
 
   const agentMap = useMemo(() => {
     const m = new Map<string, Agent>();
@@ -145,6 +149,43 @@ export default function ProjectDetail() {
       setMembers(await getProjectMembers(id));
     } catch (error) {
       console.error('添加成员失败:', error);
+    }
+  };
+
+  const handleSuggest = async () => {
+    if (!id) return;
+    setSuggestionsLoading(true);
+    try {
+      const list = await suggestProjectMembers(id);
+      // 过滤掉已在项目中的 agent
+      const memberIds = new Set(members.map(m => m.agentId));
+      const filtered = list.filter(a => !memberIds.has(a.id));
+      setSuggestedAgents(filtered);
+      setSelectedSuggestedIds(filtered.map(a => a.id)); // 默认全选
+      setSuggestModalOpen(true);
+    } catch (error) {
+      console.error('获取推荐成员失败:', error);
+      message.error('获取推荐成员失败');
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  const handleAddSuggested = async () => {
+    if (!id || selectedSuggestedIds.length === 0) return;
+    try {
+      // 顺序添加，避免并发导致后端报错；如果需要可并行优化
+      for (const aid of selectedSuggestedIds) {
+        await addProjectMember(id, aid);
+      }
+      message.success('已将推荐 Agent 添加到项目');
+      setSuggestModalOpen(false);
+      setSuggestedAgents([]);
+      setSelectedSuggestedIds([]);
+      setMembers(await getProjectMembers(id));
+    } catch (error) {
+      console.error('添加推荐成员失败:', error);
+      message.error('添加推荐成员失败');
     }
   };
 
@@ -451,6 +492,13 @@ export default function ProjectDetail() {
             >
               添加
             </Button>
+            <Button
+              onClick={handleSuggest}
+              loading={suggestionsLoading}
+              disabled={candidateAgents.length === 0}
+            >
+              智能推荐
+            </Button>
           </Space.Compact>
         }
       >
@@ -531,6 +579,58 @@ export default function ProjectDetail() {
             </Select>
           </Form.Item>
         </Form>
+        )}
+      </Modal>
+
+      {/* 推荐成员 Modal */}
+      <Modal
+        title="推荐加入的 Agent"
+        open={suggestModalOpen}
+        onCancel={() => { setSuggestModalOpen(false); setSuggestedAgents([]); setSelectedSuggestedIds([]); }}
+        onOk={handleAddSuggested}
+        okText="添加选中"
+        cancelText="取消"
+        destroyOnClose
+        width={640}
+      >
+        {suggestedAgents.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 24 }}>暂无推荐的 Agent</div>
+        ) : (
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            {suggestedAgents.map(a => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedSuggestedIds.includes(a.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelectedSuggestedIds(prev => Array.from(new Set([...prev, a.id])));
+                    else setSelectedSuggestedIds(prev => prev.filter(id => id !== a.id));
+                  }}
+                  style={{ marginRight: 12 }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 600 }}>{a.name}</span>
+                    <Tag color={a.config.role === 'supervisor' ? 'blue' : 'default'}>{a.config.role === 'supervisor' ? '监理' : '专家'}</Tag>
+                  </div>
+                  {a.description && <div style={{ color: 'rgba(0,0,0,0.45)', marginTop: 4 }}>{a.description}</div>}
+                </div>
+                <div style={{ marginLeft: 12 }}>
+                  <Button size="small" onClick={async () => {
+                    if (!id) return;
+                    try {
+                      await addProjectMember(id, a.id);
+                      message.success('成员添加成功');
+                      setMembers(await getProjectMembers(id));
+                    } catch (err) {
+                      console.error('添加成员失败:', err);
+                      message.error('添加成员失败');
+                    }
+                  }}>添加</Button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </Modal>
     </div>

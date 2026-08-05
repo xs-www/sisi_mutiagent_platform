@@ -17,6 +17,7 @@ pnpm-debug.log*
 
 # Environment
 .env
+.env/
 .env.local
 .env.*.local
 
@@ -57,3 +58,5 @@ data/agents/builtin/*/*
 !data/agents/builtin/*/tools.yaml
 !data/agents/builtin/*/input.schema.json
 !data/agents/builtin/*/output.schema.json
+
+tickets/
